@@ -111,7 +111,11 @@ def notification_schema(hass, defaults: dict) -> vol.Schema:
 def policy_schema(defaults: dict) -> vol.Schema:
     fields = {
         vol.Optional(
-            "automatic_submission", default=defaults.get("automatic_submission", False)
+            "automatic_submission",
+            default=bool(
+                defaults.get("automatic_submission")
+                and defaults.get("automatic_submission_confirmed")
+            ),
         ): bool,
         vol.Optional(
             "deadline_time", default=defaults.get("deadline_time", "22:00:00")
@@ -316,6 +320,7 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_policy(self, user_input=None):
         if user_input is not None:
             self.current.update(user_input)
+            self.current["automatic_submission_confirmed"] = True
             if self.current["source_entity"]:
                 self.current["allow_historical_submission"] = False
             self.position += 1
@@ -343,7 +348,7 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 or "없음"
             )
             summaries.append(
-                f"{contract.label}: 센서 {o['source_entity'] or '없음'}, 기준 {o.get('initial_estimate', {}).get('value') or '미설정'} m³, 수신 {recipients}, 보정 {o['weekly_time']}, 제출 알림 {o['reminder_time']}, 마감 {o['deadline_time']}, 자동 제출 {'요청됨(검증 잠금)' if o['automatic_submission'] else '꺼짐'}, 과거값 허용 {o['allow_historical_submission']}"
+                f"{contract.label}: 센서 {o['source_entity'] or '없음'}, 기준 {o.get('initial_estimate', {}).get('value') or '미설정'} m³, 수신 {recipients}, 보정 {o['weekly_time']}, 제출 알림 {o['reminder_time']}, 마감 {o['deadline_time']}, 자동 제출 {'켜짐' if o['automatic_submission'] else '꺼짐'}, 과거값 허용 {'허용' if o['allow_historical_submission'] else '허용 안 함'}"
             )
         return self.async_show_form(
             step_id="summary",
@@ -453,5 +458,5 @@ class GasOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_policy(self, user_input=None):
         if user_input is not None:
-            return self.finish(user_input)
+            return self.finish({**user_input, "automatic_submission_confirmed": True})
         return self.async_show_form(step_id="policy", data_schema=policy_schema(self.current))

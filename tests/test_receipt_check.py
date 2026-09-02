@@ -20,7 +20,11 @@ def window(**kwargs):
 
 
 @pytest.mark.parametrize("reading", [None, "35", "36"])
-async def test_locked_readback_resolves_only_exact_receipt(hass, reading):
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_readback_resolves_only_exact_receipt(hass, reading, enabled, monkeypatch):
+    from custom_components.busan_city_gas import coordinator
+
+    monkeypatch.setattr(coordinator, "SUBMISSION_ENABLED", enabled)
     runtime = await make_runtime(hass)
     key = CONTRACT.key
     fresh = window(submitted=reading)
@@ -31,7 +35,7 @@ async def test_locked_readback_resolves_only_exact_receipt(hass, reading):
     state[fresh.cycle] = {"status": "uncertain", "proposed": 35, "error": "submission_uncertain"}
     try:
         view = await runtime.check_submission(key)
-        assert view["submission_locked"]
+        assert view["submission_locked"] is not enabled
         assert view["submission_status"] == ("confirmed" if reading == "35" else "uncertain")
         assert view["submission_observed"] == reading
         assert view["accepted_checked_at"]
@@ -129,7 +133,7 @@ async def test_readback_entrypoints_require_user_authorization(hass, allowed, su
                 },
             )
             if allowed:
-                assert connection.send_result.call_args.args[1]["submission_locked"]
+                assert not connection.send_result.call_args.args[1]["submission_locked"]
             else:
                 assert connection.send_error.call_args.args[1] == "not_authorized"
         assert runtime.client.meter.await_count == int(allowed)

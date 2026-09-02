@@ -12,7 +12,7 @@ from datetime import date, datetime
 import aiohttp
 from bs4 import BeautifulSoup
 
-from .const import BASE_URL, SUBMISSION_VERIFIED
+from .const import BASE_URL, SUBMISSION_ENABLED
 from .model import Bill, GasError, MeterWindow, Segment, Tariff, decimal
 
 
@@ -368,9 +368,9 @@ class PortalClient:
     async def submit(
         self, contract: Contract, window: MeterWindow, value: int, *, now: datetime
     ) -> None:
-        # No config-flow/service option can enable this production gate.
-        if not SUBMISSION_VERIFIED:
-            raise GasError("submission_unverified")
+        # Emergency switch, independent of the per-request validation below.
+        if not SUBMISSION_ENABLED:
+            raise GasError("submission_disabled")
         from .submission_transport import FORM_PATH, SubmissionNotSent, build_payload, send_once
 
         try:

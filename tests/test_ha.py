@@ -154,7 +154,14 @@ async def test_authorization_and_no_caller(hass):
 
 
 async def test_deadline_catchup_once_and_query_before_submit(hass):
-    runtime = await make_runtime(hass, {"automatic_submission": True, "deadline_time": "00:00:00"})
+    runtime = await make_runtime(
+        hass,
+        {
+            "automatic_submission": True,
+            "automatic_submission_confirmed": True,
+            "deadline_time": "00:00:00",
+        },
+    )
     now = dt_util.now()
     runtime.ready_at = now - timedelta(minutes=5)
     key = CONTRACT.key
@@ -179,7 +186,14 @@ async def test_deadline_catchup_once_and_query_before_submit(hass):
 
 
 async def test_already_submitted_suppresses_deadline(hass):
-    runtime = await make_runtime(hass, {"automatic_submission": True, "deadline_time": "00:00:00"})
+    runtime = await make_runtime(
+        hass,
+        {
+            "automatic_submission": True,
+            "automatic_submission_confirmed": True,
+            "deadline_time": "00:00:00",
+        },
+    )
     now = dt_util.now()
     runtime.ready_at = now - timedelta(minutes=5)
     window = MeterWindow(

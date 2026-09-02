@@ -19,10 +19,10 @@ class SubmissionManager:
         query: Callable[[], Awaitable[MeterWindow]],
         write: Callable[[MeterWindow, int], Awaitable[None]],
         *,
-        verified: bool = False,
+        enabled: bool = True,
     ):
         self.state, self.persist, self.query, self.write = state, persist, query, write
-        self.verified = verified
+        self.enabled = enabled
         self.lock = asyncio.Lock()
         self.proposals: dict[str, dict] = {}
 
@@ -88,8 +88,8 @@ class SubmissionManager:
             proposal = self.proposals.get(proposal_id)
             if proposal is None or now >= datetime.fromisoformat(proposal["expires"]):
                 raise GasError("stale_proposal")
-            if not self.verified:
-                raise GasError("submission_unverified")
+            if not self.enabled:
+                raise GasError("submission_disabled")
             prior = self.state.get(proposal["cycle"], {})
             try:
                 window = await self.query()

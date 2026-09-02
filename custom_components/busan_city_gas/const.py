@@ -1,13 +1,12 @@
-"""Integration constants. External writes intentionally remain release-locked."""
+"""Integration defaults; write availability is not evidence of live validation."""
 
 DOMAIN = "busan_city_gas"
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 PANEL_PATH = "busan-city-gas"
 EVENT_UPDATED = f"{DOMAIN}_updated"
 BASE_URL = "https://ebpp.skens.com"
-# NOT a user option. Change only after an authorized open-window submission audit,
-# including the payload, acknowledgement, re-query and integer conversion rules.
-SUBMISSION_VERIFIED = False
+# Emergency release switch. All period/auth/receipt checks still apply when enabled.
+SUBMISSION_ENABLED = True
 DEFAULT_OPTIONS = {
     "source_entity": "",
     "recipients": [],
@@ -17,6 +16,7 @@ DEFAULT_OPTIONS = {
     "reminder_enabled": False,
     "reminder_time": "22:00:00",
     "automatic_submission": False,
+    "automatic_submission_confirmed": False,
     "deadline_time": "22:00:00",
     "allow_historical_submission": False,
 }

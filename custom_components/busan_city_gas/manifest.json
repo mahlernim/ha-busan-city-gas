@@ -10,5 +10,5 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/mahlernim/ha-busan-city-gas/issues",
   "requirements": ["beautifulsoup4==4.14.3"],
-  "version": "0.2.0"
+  "version": "0.3.0"
 }

@@ -2,7 +2,7 @@
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
 const number = (value, digits = 1) => value === null || value === undefined ? "—" : Number(value).toLocaleString("ko-KR", {maximumFractionDigits: digits});
 const errors = {
-  submission_unverified: "실제 접수 검증 전까지 제출 기능이 잠겨 있습니다.",
+  submission_disabled: "현재 제출 기능이 중지되어 있습니다. 부산도시가스 홈페이지에서 직접 제출해 주세요.",
   submission_uncertain: "접수 여부가 불명확합니다. 홈페이지에서 확인해 주세요. 재전송은 중지했습니다.",
   submission_rejected: "서버가 저장 실패로 응답했고 재조회에서도 접수값을 확인하지 못했습니다. 구체적인 원인은 제공되지 않았습니다. 오늘은 다시 보내지 않습니다. 홈페이지에서 확인해 주세요.",
   submission_attempted_today: "오늘 이미 제출을 시도했습니다. 중복 전송을 막기 위해 오늘은 다시 보내지 않습니다. 홈페이지에서 접수 내역을 확인해 주세요.",
@@ -85,8 +85,7 @@ class BusanCityGasPanel extends HTMLElement {
     this.started = false;
   }
   get current() {return this.rows.find(r => r.key === this.key) || this.rows[0];}
-  async call(action, extra = {}) {
-    const row = this.current;
+  async call(action, extra = {}, row = this.current) {
     return this._hass.callWS({type:`busan_city_gas/${action}`, entry_id:row.entry_id, key:row.key, ...extra});
   }
   async load() {
@@ -107,10 +106,16 @@ class BusanCityGasPanel extends HTMLElement {
     }
   }
   async submit() {
-    const proposal = await this.call("proposal");
+    const row = this.current;
+    const proposal = await this.call("proposal", {}, row);
     const origin = proposal.origin === "historical" ? " (작년 사용량 기반 추정)" : "";
-    if(!window.confirm(`${proposal.value} m³${origin}을 부산도시가스에 제출할까요?`)) return;
-    const result = await this.call("submit", {proposal_id:proposal.id});
+    if(!window.confirm(`${row.label || "선택한 계약"}\n${proposal.value} m³${origin}을 부산도시가스에 제출할까요?\n소수점은 버리고 정수만 전송합니다. 접수된 값의 변경은 홈페이지에서 확인해 주세요.`)) {
+      this.message = "제출을 취소했습니다. 검침값은 전송하지 않았습니다. 보정한 값은 유지됩니다.";
+      return;
+    }
+    this.message = "검침값 전송 및 접수 확인 중… 다시 누르지 마세요.";
+    this.render();
+    const result = await this.call("submit", {proposal_id:proposal.id}, row);
     this.message = `접수 확인: ${result.accepted} m³`;
   }
   async act(action) {
@@ -183,6 +188,8 @@ class BusanCityGasPanel extends HTMLElement {
       <small>숫자만 입력하면 적용되지 않습니다. ±0.1은 추정값 조정이며 실측 확인과 구분됩니다.</small>
       <details><summary>계량기를 교체했나요?</summary><p>위에 새 계량기 숫자를 입력한 뒤 기준을 재설정하세요.</p>${button("replace","새 계량기 기준 설정")}</details></section>
       <section><h2>가스요금</h2><div class="grid"><div><small>최근 확정 고지금액</small><div class="metric">${fmt(r.billed_amount,"원")}</div></div><div><small>이번 청구기간 예상액</small><div class="metric">${fmt(r.projected_amount,"원")}</div></div><div><small>현재까지 예상액</small><div class="metric">${fmt(r.accrued_amount,"원")}</div></div><div><small>최근 14일 사용일 평균</small><div class="metric">${number(r.average,2)} m³/일</div></div></div>
+      <p>현재까지 사용량 ${fmt(r.usage)} · 기간 전체 예상 ${fmt(r.projected_usage)}</p>
+      ${r.due_date ? `<p>최근 고지서 납기일 ${esc(r.due_date)} · 고지 사용량 ${fmt(r.billed_usage)}</p>` : ""}
       <p class="muted">최근 14일 중 ${r.average_days}일 기준 · 사용량 0인 날과 불완전한 날 제외</p><small>예상액은 확정 청구액이 아닙니다. 최신 확인 계수·요율을 사용하며 할인·정산은 다를 수 있습니다.</small>
       ${r.period_start ? `<p>예상 사용기간 ${esc(r.period_start)} ~ ${esc(r.period_end)} (종료 예정)</p>` : ""}</section>
       <section><h2>자가검침</h2><p>입력 기간 ${esc(r.window_start || "확인 중")} ~ ${esc(r.window_end || "확인 중")}</p>
@@ -193,7 +200,9 @@ class BusanCityGasPanel extends HTMLElement {
       ${r.submission_status === "confirmed" && r.receipt_in_latest_read === false ? `<p class="warning">${esc(receiptMessage(r))}</p>` : ""}
       <div class="actions">${button("check",r.submission_checking ? "접수 확인 중…" : "접수 상태만 확인",r.submission_checking)}</div>
       <small>접수 내역만 조회합니다. 검침값 제출·재전송 및 고지서 재조회는 하지 않습니다.</small>
-      ${r.submission_locked ? '<p class="warning">현재 버전에서는 검침값을 제출할 수 없습니다. 요금 조회와 보정은 사용할 수 있으며, 필요한 자가검침은 부산도시가스 홈페이지에서 직접 해주세요.</p>' : ""}
+      ${r.submission_locked ? '<p class="warning">현재 제출 기능이 중지되어 있습니다. 필요한 자가검침은 홈페이지에서 직접 해주세요.</p>' : ""}
+      <p>마감일 자동 제출: ${r.automatic_submission ? "켜짐" : "꺼짐"}</p>
+      ${r.automatic_submission_needs_confirmation ? '<p class="warning">이전 버전의 자동 제출 설정은 실행하지 않습니다. 사용하려면 통합 설정의 제출 정책에서 다시 켜고 저장해 주세요.</p>' : ""}
       <div class="actions">${button("submit","제출값 확인",r.submission_locked || !r.window_open || r.submission_blocked || ["confirmed","pending","uncertain"].includes(r.submission_status))}${button("test","알림 테스트")}${this._hass?.user?.is_admin ? button("refresh",r.refreshing ? "조회 중…" : "공식 정보 새로고침",r.refreshing) : ""}</div>
       <small>알림 발송 요청 ${r.notification.requested_count || 0}대 · 수신 확인 ${r.notification.received_count || 0}명</small>
       ${r.error ? `<p class="warning">공식 조회가 최신 상태가 아닙니다: ${esc(r.error)}</p>` : ""}<p class="muted">마지막 공식 조회 ${esc(r.last_refresh || "아직 없음")}</p>

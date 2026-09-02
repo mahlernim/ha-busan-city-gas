@@ -18,7 +18,13 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .config_flow import phones
-from .const import DEFAULT_OPTIONS, DOMAIN, EVENT_UPDATED, PANEL_PATH, SUBMISSION_VERIFIED
+from .const import (
+    DEFAULT_OPTIONS,
+    DOMAIN,
+    EVENT_UPDATED,
+    PANEL_PATH,
+    SUBMISSION_ENABLED,
+)
 from .model import Bill, Estimate, GasError, MeterWindow, Tariff, decimal, forecast
 from .portal import AuthenticationError, Contract, PortalClient
 from .submission import SubmissionManager
@@ -52,7 +58,13 @@ class AccountCoordinator(DataUpdateCoordinator):
         self.receipt_tasks = {}
 
     def options(self, key):
-        return {**DEFAULT_OPTIONS, **self.entry.options.get("contracts", {}).get(key, {})}
+        options = {**DEFAULT_OPTIONS, **self.entry.options.get("contracts", {}).get(key, {})}
+        # Old releases promised that this option could not send anything.
+        # Only saving the new policy form grants automatic-write consent.
+        options["automatic_submission"] = bool(
+            options["automatic_submission"] and options["automatic_submission_confirmed"]
+        )
+        return options
 
     async def initialize(self):
         self.saved = await self.store.async_load() or {"contracts": {}}
@@ -89,7 +101,7 @@ class AccountCoordinator(DataUpdateCoordinator):
                 await self.client.submit(c, window, value, now=dt_util.now())
 
             self.submissions[key] = SubmissionManager(
-                state, self.persist, query, write, verified=SUBMISSION_VERIFIED
+                state, self.persist, query, write, enabled=SUBMISSION_ENABLED
             )
             if source:
                 self.observe(key)
@@ -284,7 +296,12 @@ class AccountCoordinator(DataUpdateCoordinator):
             "history_errors": item.get("history_errors", []),
             "refreshing": self.refreshing,
             "refresh_progress": self.progress.get(key, "공식 정보 조회 준비 중…"),
-            "submission_locked": not SUBMISSION_VERIFIED,
+            "submission_locked": not SUBMISSION_ENABLED,
+            "automatic_submission": self.options(key)["automatic_submission"],
+            "automatic_submission_needs_confirmation": bool(
+                self.entry.options.get("contracts", {}).get(key, {}).get("automatic_submission")
+                and not self.options(key)["automatic_submission_confirmed"]
+            ),
             "window_start": window.start if window else None,
             "window_status": window_status,
             "today": today,
@@ -532,8 +549,8 @@ class AccountCoordinator(DataUpdateCoordinator):
             title, message = "가스 검침 제출", f"{proposal['value']} m³을 제출할까요?"
             if proposal["origin"] == "historical":
                 message += " 작년 사용량 기반 추정값입니다."
-            if not SUBMISSION_VERIFIED:
-                message += " 현재 제출 기능은 검증 대기 중입니다."
+            if not SUBMISSION_ENABLED:
+                message += " 현재 제출 기능은 중지되어 있습니다."
         else:
             buttons = [("confirm", "맞음"), ("plus", "+0.1"), ("minus", "−0.1")]
             title = "가스 검침 보정"
@@ -623,7 +640,7 @@ class AccountCoordinator(DataUpdateCoordinator):
 
     async def alert(self, key, code):
         messages = {
-            "submission_unverified": "자가검침 제출 기능은 실제 접수 검증 전까지 잠겨 있습니다.",
+            "submission_disabled": "현재 제출 기능이 중지되어 있습니다. 홈페이지에서 직접 제출해 주세요.",
             "submission_uncertain": "접수 여부를 확정할 수 없습니다. 홈페이지에서 확인해 주세요. 중복 제출은 중지했습니다.",
             "submission_rejected": "서버가 저장 실패로 응답했고 재조회에서도 접수값을 확인하지 못했습니다. 원인은 제공되지 않았습니다. 오늘은 재전송하지 않습니다.",
             "submission_attempted_today": "오늘 이미 제출을 시도했습니다. 중복 전송을 막기 위해 오늘은 다시 보내지 않습니다. 홈페이지에서 접수 내역을 확인하세요.",
