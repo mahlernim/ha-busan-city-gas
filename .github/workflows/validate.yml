@@ -1,0 +1,45 @@
+name: Validate
+on:
+  push:
+    branches: [main, 'agent/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ha: ['2026.7.4', '2026.8.3']
+    env:
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.14'
+          cache: pip
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - run: pip install -r requirements_test.txt
+      - run: pip install homeassistant==${{ matrix.ha }}
+      - run: ruff check custom_components tests tools
+      - run: ruff format --check custom_components tests tools
+      - run: pytest -p pytest_asyncio.plugin
+      - run: node --check custom_components/busan_city_gas/frontend/panel.js
+      - run: node --test tests/test_panel_messages.cjs
+      - run: python tools/build.py
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: hacs/action@main
+        with:
+          category: integration
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: home-assistant/actions/hassfest@master

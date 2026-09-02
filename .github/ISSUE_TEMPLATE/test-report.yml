@@ -1,0 +1,43 @@
+name: 사용 후기 · 오류 제보
+description: 설치 결과, 사용 중 불편한 점 또는 오류를 알려주세요.
+title: '[사용 후기] '
+body:
+  - type: markdown
+    attributes:
+      value: '참여해 주셔서 감사합니다. 이 내용은 누구나 볼 수 있습니다. 아이디·비밀번호·계약번호·주소·인증 토큰·원본 고지서는 올리지 마세요.'
+  - type: input
+    id: version
+    attributes:
+      label: 부산도시가스 통합 버전
+      placeholder: 예) 0.2.0
+    validations:
+      required: true
+  - type: input
+    id: ha-version
+    attributes:
+      label: Home Assistant 버전
+    validations:
+      required: true
+  - type: dropdown
+    id: step
+    attributes:
+      label: 어떤 부분을 사용하셨나요?
+      options:
+        - 설치·로그인
+        - 요금·사용량 조회
+        - 센서 연결·검침 보정
+        - 휴대폰 알림
+        - 접수 상태 조회
+        - 화면·기타
+  - type: textarea
+    id: result
+    attributes:
+      label: 사용 결과 또는 재현 방법
+      description: 잘 된 부분도 환영합니다. 문제가 있다면 누른 버튼, 기대한 결과와 실제 결과를 알려주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: 오류 문구 또는 화면 사진 (선택)
+      description: 계약번호·주소·이름 등 개인정보를 가린 뒤 첨부해 주세요. 원본 로그나 진단 파일 전체는 올리지 마세요.

@@ -1,0 +1,23 @@
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+.venv/
+dist/
+node_modules/
+coverage*
+.coverage
+
+# Private operator evidence and tools: keep locally, never stage for publication.
+docs/validation.md
+docs/rollout.md
+docs/read-efficiency.md
+tools/audit_*.py
+tools/inspect_submission_contract.py
+.env
+.env.*
+!.env.example
+ha_token.txt
+*.jsonl
+docs/publication-plan.md
+docs/submission-validation.md

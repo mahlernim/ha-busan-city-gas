@@ -1,0 +1,6 @@
+homeassistant==2026.7.4
+beautifulsoup4==4.14.3
+pytest==9.0.3
+pytest-asyncio==1.4.0
+ruff==0.16.1
+PyYAML==6.0.3
