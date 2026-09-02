@@ -7,6 +7,14 @@ const context = {HTMLElement: class {}, customElements: {define(){}, get(){retur
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(path.join(__dirname,'../custom_components/busan_city_gas/frontend/panel.js'),'utf8')+'\nthis.windowMessage=windowMessage;this.errorMessage=errorMessage;',context);
 vm.runInContext('this.receiptMessage=receiptMessage;this.Panel=BusanCityGasPanel;', context);
+vm.runInContext('this.modelMessage=modelMessage;this.modelLabel=modelLabel;', context);
+test('estimation messages distinguish waiting, missing anchor and learning',()=>{
+ assert.match(context.modelMessage({source_waiting:true}),/센서 연결 대기/);
+ assert.match(context.modelMessage({estimation_status:'anchor_required'}),/실제 숫자/);
+ assert.match(context.modelMessage({estimation_status:'insufficient_data'}),/자료가 부족/);
+ assert.match(context.modelLabel({estimation_method:'historical_blend'}),/실측 추세/);
+ assert.match(context.modelLabel({estimation_method:'recent_physical'}),/최근 실측/);
+});
 const base = {window_start:'2026-09-13',window_end:'2026-09-18',today:'2026-09-02',submission_status:'not_submitted'};
 test('before window states exact available dates',()=>{
  const text=context.windowMessage({...base,window_status:'before'});
@@ -83,7 +91,7 @@ test('approved submission uses displayed integer, proposal and original contract
   if(action==='proposal') {panel.rows=[{key:'b'}];return {id:'p',value:128,origin:'historical'};}
   return {accepted:'128'};
  };
- context.window={confirm:text=>{assert.match(text,/예시 계약/);assert.match(text,/128 m³/);assert.match(text,/작년 사용량/);return true;}};
+ context.window={confirm:text=>{assert.match(text,/예시 계약/);assert.match(text,/128 m³/);assert.match(text,/과거 사용량·실측 기록/);return true;}};
  await panel.submit();
  assert.equal(calls.length,2);
  assert.equal(calls[1].data.proposal_id,'p');

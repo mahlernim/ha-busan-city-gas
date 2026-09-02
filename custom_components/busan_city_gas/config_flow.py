@@ -245,9 +245,7 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 source = user_input.get("source_entity", "")
                 validate_source(self.hass, source)
                 self.current["source_entity"] = source
-                if source:
-                    return await self.async_step_anchor()
-                return await self.async_step_notifications()
+                return await self.async_step_anchor()
             except GasError:
                 errors["base"] = "invalid_source"
         return self.async_show_form(
@@ -268,9 +266,10 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 source = self.hass.states.get(self.current["source_entity"])
-                if source is None:
+                if self.current["source_entity"] and source is None:
                     raise GasError("invalid_source")
-                decimal(source.state)
+                if source:
+                    decimal(source.state)
                 estimate = Estimate()
                 if user_input.get("import_existing") and can_import:
                     estimate = Estimate(
@@ -284,7 +283,10 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     estimate.observe(source.state, dt_util.now())
                 elif "reading" in user_input:
                     estimate.calibrate(
-                        user_input["reading"], source.state, dt_util.now(), physical=True
+                        user_input["reading"],
+                        source.state if source else None,
+                        dt_util.now(),
+                        physical=True,
                     )
                 self.current["initial_estimate"] = estimate.dump()
                 return await self.async_step_notifications()

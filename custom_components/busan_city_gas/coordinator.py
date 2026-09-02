@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
+from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime, timedelta
 
@@ -27,6 +28,7 @@ from .const import (
 )
 from .model import Bill, Estimate, GasError, MeterWindow, Tariff, decimal, forecast
 from .portal import AuthenticationError, Contract, PortalClient
+from .sensorless import SensorlessModel
 from .submission import SubmissionManager
 
 LOGGER = logging.getLogger(__name__)
@@ -56,6 +58,8 @@ class AccountCoordinator(DataUpdateCoordinator):
         self.refreshing = False
         self.progress = {}
         self.receipt_tasks = {}
+        self.models = {}
+        self.startup_deadlines = {}
 
     def options(self, key):
         options = {**DEFAULT_OPTIONS, **self.entry.options.get("contracts", {}).get(key, {})}
@@ -74,17 +78,26 @@ class AccountCoordinator(DataUpdateCoordinator):
             self.estimates[key] = Estimate(**initial)
             source = self.options(key)["source_entity"]
             if data.get("estimate") and source and self.estimates[key].source_at:
+                deadline = datetime.fromisoformat(self.estimates[key].source_at) + timedelta(
+                    seconds=120
+                )
                 if (
-                    dt_util.now() - datetime.fromisoformat(self.estimates[key].source_at)
-                ).total_seconds() > 120:
+                    dt_util.now() > deadline
+                    or datetime.fromisoformat(self.estimates[key].source_at) > dt_util.now()
+                ):
                     self.estimates[key].invalidate(dt_util.now())
-            if data.get("source", source) != source:
+                elif not self.estimates[key].gap and self.estimates[key].source_last is not None:
+                    self.startup_deadlines[key] = deadline
+            if data.get("estimate") and data.get("source") != source:
                 self.estimates[key].source_last = None
                 self.estimates[key].source_at = None
                 self.estimates[key].gap = True
+                self.startup_deadlines.pop(key, None)
             data["source"] = source
             if data.get("window"):
                 self.windows[key] = MeterWindow(**data["window"])
+            self.models[key] = SensorlessModel(data.get("sensorless"))
+            self.sync_model(key)
             state = data.setdefault("submissions", {})
 
             async def query(k=key, c=contract):
@@ -95,6 +108,7 @@ class AccountCoordinator(DataUpdateCoordinator):
                     self.estimates[k].record("physical_meter_changed", dt_util.now())
                 self.windows[k] = window
                 self.saved["contracts"][k]["window"] = asdict(window)
+                self.sync_model(k)
                 return window
 
             async def write(window, value, c=contract):
@@ -133,7 +147,33 @@ class AccountCoordinator(DataUpdateCoordinator):
         source = self.options(key)["source_entity"]
         if source:
             state = self.hass.states.get(source)
-            self.estimates[key].observe(state.state if state else None, dt_util.now())
+            now = dt_util.now()
+            raw = state.state if state and not state.attributes.get("restored") else None
+            if deadline := self.startup_deadlines.get(key):
+                try:
+                    decimal(raw)
+                    valid = True
+                except GasError:
+                    valid = False
+                if now < deadline and not valid:
+                    day = self.estimates[key].days.setdefault(
+                        now.date().isoformat(), {"volume": "0"}
+                    )
+                    day.update(complete=False, invalid=True)
+                    return
+                self.startup_deadlines.pop(key, None)
+                if now >= deadline:
+                    self.estimates[key].invalidate(now)
+            self.estimates[key].observe(raw, now)
+
+    def sync_model(self, key):
+        item = self.saved["contracts"][key]
+        self.models[key].sync(
+            [Bill.load(b) for b in item.get("bills", {}).values()],
+            self.windows.get(key),
+            self.estimates[key],
+            dt_util.now(),
+        )
 
     async def source_changed(self, key):
         async with self.action_lock:
@@ -146,6 +186,7 @@ class AccountCoordinator(DataUpdateCoordinator):
     def dump(self):
         for key, estimate in self.estimates.items():
             self.saved["contracts"][key]["estimate"] = estimate.dump()
+            self.saved["contracts"][key]["sensorless"] = self.models[key].state
         return self.saved
 
     async def persist(self):
@@ -167,6 +208,8 @@ class AccountCoordinator(DataUpdateCoordinator):
             return results[0]
         finally:
             self.refreshing = False
+            for key in self.contracts:
+                self.sync_model(key)
             await self.persist()
             self.changed()
 
@@ -261,6 +304,7 @@ class AccountCoordinator(DataUpdateCoordinator):
             dt_util.now(),
             tariff,
             item.get("caloric"),
+            self.models[key],
         )
         estimate = self.estimates[key]
         cycle = item.get("submissions", {}).get(window.cycle, {}) if window else {}
@@ -277,11 +321,14 @@ class AccountCoordinator(DataUpdateCoordinator):
             "key": key,
             "label": self.contracts[key].label,
             **values,
-            "local_reading": estimate.value,
+            "local_reading": estimate.value
+            if self.options(key)["source_entity"]
+            else values["reading"],
             "actual": estimate.actual,
             "actual_at": estimate.actual_at,
             "gap": estimate.gap,
             "source_configured": bool(self.options(key)["source_entity"]),
+            "source_waiting": key in self.startup_deadlines,
             "billed_amount": bills[-1].amount if bills else None,
             "previous_amount": bills[-2].amount if len(bills) > 1 else None,
             "last_year_amount": prior_year.amount if prior_year else None,
@@ -315,6 +362,7 @@ class AccountCoordinator(DataUpdateCoordinator):
             "submission_observed": cycle.get("observed_reading"),
             "receipt_in_latest_read": cycle.get("receipt_in_latest_read"),
             "submission_blocked": bool(window and window.private.get("submission_blocked"))
+            or key in self.startup_deadlines
             or cycle.get("status") in ("confirmed", "pending", "uncertain")
             or cycle.get("last_attempt_day") == today,
             "accepted": cycle.get("accepted"),
@@ -354,23 +402,41 @@ class AccountCoordinator(DataUpdateCoordinator):
     ):
         async with self.action_lock:
             self.observe(key)
-            estimate = self.estimates[key]
+            estimate = deepcopy(self.estimates[key])
+            source = self.options(key)["source_entity"]
+            displayed = estimate.value if source else self.view(key)["local_reading"]
             if (
                 expected is not None
-                and estimate.value is not None
-                and decimal(expected) != decimal(estimate.value)
+                and displayed is not None
+                and abs(decimal(expected) - decimal(displayed))
+                > (decimal("0") if source else decimal("0.01"))
             ):
                 raise GasError("stale_proposal")
-            source = self.options(key)["source_entity"]
+            if not source:
+                # Guard large corrections against the number the user sees.
+                estimate.value = displayed if displayed is not None else estimate.value
             state = self.hass.states.get(source) if source else None
+            now = dt_util.now()
+            if state and state.attributes.get("restored"):
+                raise GasError("source_waiting")
             estimate.calibrate(
                 value,
                 state.state if state else None,
-                dt_util.now(),
+                now,
                 physical=physical,
                 accept_large=accept_large,
                 replace_meter=replace_meter,
             )
+            self.estimates[key] = estimate
+            if physical:
+                self.startup_deadlines.pop(key, None)
+            self.models[key].observe_physical(
+                value,
+                now,
+                physical=physical,
+                replace=replace_meter,
+            )
+            self.sync_model(key)
             await self.persist()
             self.prompts = {k: p for k, p in self.prompts.items() if p["key"] != key}
             self.submissions[key].proposals.clear()
@@ -379,7 +445,7 @@ class AccountCoordinator(DataUpdateCoordinator):
     def propose(self, key):
         view, window = self.view(key), self.windows.get(key)
         estimate = self.estimates[key]
-        if not self.options(key)["source_entity"] and estimate.actual_at:
+        if not self.options(key)["source_entity"] and self.current_physical(key):
             if (dt_util.now() - datetime.fromisoformat(estimate.actual_at)).total_seconds() <= 1800:
                 view["reading"], view["origin"] = estimate.actual, "manual"
         if window is None or view["reading"] is None:
@@ -388,10 +454,23 @@ class AccountCoordinator(DataUpdateCoordinator):
             view["reading"], view["origin"], dt_util.now(), window
         )
 
+    def current_physical(self, key):
+        observations = self.models[key].state["observations"]
+        estimate = self.estimates[key]
+        return bool(
+            observations
+            and observations[-1]["at"] == estimate.actual_at
+            and decimal(observations[-1]["value"]) == decimal(estimate.actual)
+        )
+
     def validate_submission(self, key, proposal, window):
         self.observe(key)
+        if key in self.startup_deadlines:
+            raise GasError("source_waiting")
         view = self.view(key)
         if not self.options(key)["source_entity"] and proposal["origin"] == "manual":
+            if not self.current_physical(key):
+                raise GasError("physical_calibration_required")
             view["reading"] = self.estimates[key].actual
         if view["reading"] is None or int(decimal(view["reading"])) != proposal["value"]:
             raise GasError("stale_proposal")
@@ -548,7 +627,7 @@ class AccountCoordinator(DataUpdateCoordinator):
             buttons = [("submit", "제출하기"), ("open", "변경필요")]
             title, message = "가스 검침 제출", f"{proposal['value']} m³을 제출할까요?"
             if proposal["origin"] == "historical":
-                message += " 작년 사용량 기반 추정값입니다."
+                message += " 과거 사용량·실측 기록 기반 추정값입니다."
             if not SUBMISSION_ENABLED:
                 message += " 현재 제출 기능은 중지되어 있습니다."
         else:
@@ -640,6 +719,7 @@ class AccountCoordinator(DataUpdateCoordinator):
 
     async def alert(self, key, code):
         messages = {
+            "source_waiting": "센서 연결을 기다리고 있습니다. 연결이 확인되기 전에는 제출하지 않습니다.",
             "submission_disabled": "현재 제출 기능이 중지되어 있습니다. 홈페이지에서 직접 제출해 주세요.",
             "submission_uncertain": "접수 여부를 확정할 수 없습니다. 홈페이지에서 확인해 주세요. 중복 제출은 중지했습니다.",
             "submission_rejected": "서버가 저장 실패로 응답했고 재조회에서도 접수값을 확인하지 못했습니다. 원인은 제공되지 않았습니다. 오늘은 재전송하지 않습니다.",
@@ -669,6 +749,7 @@ class AccountCoordinator(DataUpdateCoordinator):
             local = dt_util.as_local(now)
             for key in self.contracts:
                 self.observe(key)
+                self.sync_model(key)
                 opts = self.options(key)
                 data = self.saved["contracts"][key]
                 marks = data.setdefault("schedule", {})

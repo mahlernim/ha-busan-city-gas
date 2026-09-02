@@ -129,7 +129,7 @@ def test_historical_day_normalization():
     old = Bill("202509", "0", [Segment("2025-08-18", "2025-09-17", "0", "31", "1", "42", "meter")])
     w = MeterWindow("2026-09-13", "2026-09-18", "27", "meter", "2026-09-17", True)
     result = forecast(Estimate(), [old, bill()], w, False, NOW, None)
-    assert result["projected_usage"] == "31"
+    assert Decimal(result["projected_usage"]) == 31
     assert result["reading"] == "42.5"
     assert result["origin"] == "historical"
 
