@@ -247,6 +247,7 @@ def forecast(
     now: datetime,
     tariff: Tariff | None,
     caloric: dict | None = None,
+    sensorless=None,
 ) -> dict:
     """Separate register estimate, consumption, full-period forecast and amounts."""
     result: dict = {
@@ -263,6 +264,14 @@ def forecast(
         "period_end_estimated": True,
         "quality": "insufficient_data",
     }
+    if not source_configured:
+        if sensorless is None:
+            # Standalone callers use the same engine without persistent checkpoints.
+            from .sensorless import SensorlessModel
+
+            sensorless = SensorlessModel()
+            sensorless.sync(bills, window, estimate, now)
+        result.update(sensorless.snapshot(now))
     if not bills or window is None or window.planned is None:
         return result
     latest = max(bills, key=lambda b: b.month)
@@ -291,27 +300,16 @@ def forecast(
                     usage = None
             if usage is not None and avg is not None:
                 projected = usage + avg * remaining
-    else:
-        matching = next((b for b in bills if b.month == f"{end.year - 1}{end.month:02}"), None)
-        if matching:
-            daily = matching.usage / ((matching.end - matching.start).days + 1)
-            usage, projected = daily * elapsed, daily * duration
-            # Newer physical observations are better register anchors, but never
-            # upgrade this model-only reading to a sensor/physical observation.
-            anchor, anchor_at = (
-                decimal(window.previous),
-                datetime.combine(start, datetime.min.time(), now.tzinfo),
+    elif result["reading"] is not None and latest.segments[-1].meter == window.meter:
+        usage = decimal(result["reading"]) - decimal(latest.segments[-1].current)
+        if usage < 0:
+            usage = None
+        if usage is not None:
+            extra = sensorless.future_usage(
+                now, datetime.combine(end + timedelta(days=1), datetime.min.time(), now.tzinfo)
             )
-            if estimate.actual is not None and estimate.actual_at:
-                at = datetime.fromisoformat(estimate.actual_at)
-                if start <= at.date() <= now.date():
-                    anchor, anchor_at = decimal(estimate.actual), at
-            result.update(
-                reading=str(
-                    anchor + daily * Decimal(str((now - anchor_at).total_seconds())) / 86400
-                ),
-                origin="historical",
-            )
+            if extra is not None:
+                projected = usage + extra
     if usage is not None:
         result["usage"] = str(usage)
     if projected is not None:

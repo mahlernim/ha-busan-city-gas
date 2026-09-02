@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>부산도시가스 · 처음 연결하기</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#edf2f2;color:#19332e;font-family:"Malgun Gothic","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+main{width:1120px;padding:42px 42px 30px;background:#edf2f2}
+.eyebrow{font-size:15px;font-weight:700;letter-spacing:1.4px;color:#307465;margin-bottom:10px}
+h1{font-size:42px;letter-spacing:-1.8px;line-height:1.25;margin:0 0 12px}header p{font-size:19px;line-height:1.65;margin:0;color:#526962}
+.intro{margin:22px 0 28px;padding:16px 20px;background:#dfece6;border-radius:12px;font-size:17px;line-height:1.65}
+.intro strong{color:#176c54}.grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.step{display:flex;flex-direction:column;min-width:0}.step-head{display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:21px;font-weight:700}
+.num{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:#176c54;color:white;font-size:16px;flex-shrink:0}
+.optional{font-size:13px;font-weight:600;color:#536e64;background:#e0e9e5;border-radius:12px;padding:3px 9px;margin-left:auto}
+.dialog{background:#fff;border-radius:16px;border:1px solid #d6e0db;box-shadow:0 5px 15px #234c3510;padding:24px;flex:1;display:flex;flex-direction:column}
+.dialog-title{font-weight:700;font-size:19px;color:#202a27;margin:0 0 13px;letter-spacing:-.45px}
+.desc{font-size:16px;color:#52615b;line-height:1.7;margin:0 0 19px;word-break:keep-all}
+.field{border:1px solid #84938c;border-radius:5px;padding:11px 13px 12px;margin:0 0 13px;min-height:69px;position:relative}
+.label{font-size:13px;color:#53665c;display:block;margin-bottom:5px;line-height:1.4}
+.value{font-size:19px;color:#263b32;line-height:1.4}.value.small{font-size:16px}.chevron{float:right;color:#597467}
+.hint{font-size:14px;color:#6a776f;line-height:1.65;margin:-4px 0 15px;word-break:keep-all}
+.buttons{display:flex;justify-content:flex-end;padding-top:15px;margin-top:auto}
+button{border:0;border-radius:20px;background:#e3f2f8;color:#087bab;padding:9px 22px;font:700 15px "Malgun Gothic",sans-serif;pointer-events:none}
+.callout{font-size:15px;line-height:1.65;border-left:3px solid #96bda9;padding:9px 12px;background:#f1f7f3;margin-top:15px;word-break:keep-all;color:#405e50}
+.callout strong{color:#196b51}.subheading{font-size:14px;font-weight:700;color:#307465;margin-bottom:4px}
+.mini-progress{display:flex;gap:10px;align-items:center;font-size:15px;color:#456252;background:#f4f7f6;padding:11px 13px;border-radius:7px;margin-top:2px}
+.spinner{width:17px;height:17px;border:2px solid #d1e4e6;border-top-color:#079dcc;border-right-color:#079dcc;border-radius:50%;flex-shrink:0}
+.check{display:flex;align-items:flex-start;gap:10px;font-size:16px;line-height:1.55;margin:4px 0 12px}.box{border:2px solid #829188;width:18px;height:18px;border-radius:2px;flex-shrink:0;margin-top:3px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.pill{display:inline-block;background:#eaf0ed;border-radius:15px;padding:3px 9px;font-size:16px}
+.summary{background:#f6f8f7;border-radius:8px;padding:13px 16px;margin:0 0 18px;display:grid;grid-template-columns:144px 1fr;column-gap:10px;row-gap:11px;font-size:16px;line-height:1.45}
+.summary dt{color:#647269}.summary dd{margin:0;color:#253b2f;overflow-wrap:anywhere}.off{font-size:13px;padding:2px 7px;border-radius:9px;background:#e4e9e6;color:#53635a}
+.after{margin-top:26px;background:#176c54;border-radius:14px;padding:22px 25px;color:#fff;display:flex;align-items:center;gap:20px}.after strong{font-size:21px;flex-shrink:0}.after p{font-size:16px;line-height:1.7;margin:0;color:#e0f1e8}
+footer{margin-top:19px;font-size:13px;color:#6f7e76;line-height:1.75}footer strong{color:#52675d}
+</style>
+</head>
+<body><main>
+<header>
+  <div class="eyebrow">부산도시가스 × HOME ASSISTANT</div>
+  <h1>처음 연결하기, 한눈에 보기</h1>
+  <p>아이디·비밀번호로 시작하고, 센서와 휴대폰은 필요할 때 연결하세요.</p>
+  <div class="intro"><strong>시작 위치</strong>　설정 → 기기 및 서비스 → 통합 구성요소 추가 → 부산도시가스<br>HACS에서 설치하고 Home Assistant를 재시작한 뒤 진행합니다.</div>
+</header>
+<div class="grid">
+  <article class="step">
+    <div class="step-head"><span class="num">1</span> 홈페이지 계정으로 로그인</div>
+    <div class="dialog">
+      <h2 class="dialog-title">1/5 · 부산도시가스 로그인</h2>
+      <p class="desc">부산도시가스 홈페이지의 회원 아이디·비밀번호를 입력하세요. 연결된 계약을 자동으로 찾습니다.</p>
+      <div class="field"><span class="label">아이디</span><span class="value">gas_user_example</span></div>
+      <div class="field"><span class="label">비밀번호</span><span class="value">••••••••••••</span></div>
+      <p class="hint">고객번호·계량기 번호·쿠키는 입력하지 않습니다.</p>
+      <div class="mini-progress"><span class="spinner"></span>다음 → 로그인과 연결 계약 확인 중…</div>
+      <div class="buttons"><button>다음</button></div>
+    </div>
+    <div class="callout"><strong>계약 1개는 자동 선택</strong>되어 바로 센서 연결로 이동합니다. 여러 계약이 연결된 경우에만 선택 화면이 추가됩니다.</div>
+  </article>
+  <article class="step">
+    <div class="step-head"><span class="num">2</span> 누적 사용량 센서 선택 <span class="optional">선택 사항</span></div>
+    <div class="dialog">
+      <h2 class="dialog-title">2/5 · 가스 사용량 센서 연결 (선택)</h2>
+      <p class="desc">가스를 사용할 때마다 증가하는 <strong>원본 누적 센서</strong>를 선택하세요. m³ 단위의 누적 센서만 표시합니다.</p>
+      <div class="field"><span class="label">누적 가스 사용량 센서</span><span class="value small">가스 누적 사용량 · m³ <span class="chevron">▾</span></span><br><span class="label">sensor.example_gas_total</span></div>
+      <p class="hint">일일·월간 사용량이나 기존 ‘추정 검침값’ 센서를 선택하지 마세요.</p>
+      <p class="desc">센서가 없으면 비워두고 다음으로 진행하세요. 공식 고지서 조회만으로도 사용할 수 있습니다.</p>
+      <div class="buttons"><button>다음</button></div>
+    </div>
+    <div class="callout"><strong>센서 없이도</strong> 다음 화면에서 실제 계량기 숫자를 선택적으로 입력합니다. 과거 사용량과 실측 추세로 추정하며, 센서는 나중에 연결해도 됩니다.</div>
+  </article>
+  <article class="step">
+    <div class="step-head"><span class="num">3</span> 실제 계량기 숫자 입력 <span class="optional">선택 사항</span></div>
+    <div class="dialog">
+      <h2 class="dialog-title">2/5 · 검침 기준값 설정</h2>
+      <p class="desc">현재 계량기에 보이는 <strong>누적 숫자</strong>를 입력하세요. 이번 달 사용량이 아닙니다.</p>
+      <div class="field"><span class="label">현재 계량기에 보이는 누적 숫자 (m³)</span><span class="value">128.6</span></div>
+      <p class="hint">센서가 있으면 현재 센서값과 함께 저장합니다. 센서가 없으면 확인 시각과 함께 기록하여 추정의 기준으로 사용합니다.</p>
+      <div class="subheading">가져올 기존 값: 없음</div>
+      <p class="desc">생략해도 공식 조회는 시작합니다. 센서가 없으면 날짜·계량기가 맞는 공식 기준을 찾고, 사용할 기준이 없으면 실제 숫자 입력을 안내합니다.</p>
+      <div class="buttons"><button>다음</button></div>
+    </div>
+    <div class="callout"><strong>이전 보정 기록이 있는 환경</strong>에서는 ‘기존 보정값 가져오기’가 표시됩니다. 직접 입력 대신 사용할 수 있습니다.</div>
+  </article>
+  <article class="step">
+    <div class="step-head"><span class="num">4</span> 알림 받을 휴대폰 선택 <span class="optional">선택 사항</span></div>
+    <div class="dialog">
+      <h2 class="dialog-title">3/5 · 알림 받을 휴대폰과 일정 (선택)</h2>
+      <p class="desc">Companion App에 등록된 휴대폰을 선택하고 필요한 알림만 켜세요. 여러 대를 선택할 수 있습니다.</p>
+      <div class="field"><span class="label">담당 휴대폰 (여러 대 선택 가능)</span><span class="pill">내 휴대폰 ×</span><span class="chevron">▾</span></div>
+      <div class="check"><span class="box"></span><span>매주 검침 보정 알림</span></div>
+      <div class="row"><div class="field"><span class="label">보정 요일</span><span class="value">토 <span class="chevron">▾</span></span></div><div class="field"><span class="label">보정 시간</span><span class="value">10:00</span></div></div>
+      <div class="check"><span class="box"></span><span>자가검침 제출 확인 알림</span></div>
+      <div class="field"><span class="label">제출 확인 알림 시간</span><span class="value">22:00</span></div>
+      <p class="hint">알림은 기본 꺼짐이며, 체크해야 발송됩니다.<br>모든 시간은 Home Assistant 시간대를 따릅니다.</p>
+      <div class="buttons"><button>다음</button></div>
+    </div>
+    <div class="callout"><strong>담당자 권한</strong>도 함께 부여됩니다. 선택한 휴대폰의 HA 사용자는 해당 계약을 보정하고 제출할 수 있습니다.</div>
+  </article>
+  <article class="step">
+    <div class="step-head"><span class="num">5</span> 자동 제출 여부 결정</div>
+    <div class="dialog">
+      <h2 class="dialog-title">4/5 · 자가검침 제출 정책</h2>
+      <p class="desc">자동 제출을 켜면 마감일의 설정 시각 이후, 미제출 상태를 확인하고 검침값을 <strong>실제로 전송</strong>합니다.</p>
+      <div class="check"><span class="box"></span><span>마감일 미제출 시 자동 제출</span></div>
+      <div class="field"><span class="label">마감일 자동 제출 시간</span><span class="value">22:00</span></div>
+      <p class="desc">기본은 꺼짐입니다. 첫 사용은 직접 제출한 뒤 홈페이지에서 접수값을 확인하는 것을 권장합니다.</p>
+      <p class="hint">알림을 켜는 것과 자동 제출에 동의하는 것은 서로 다른 설정입니다.</p>
+      <div class="buttons"><button>다음</button></div>
+    </div>
+    <div class="callout"><strong>센서 없는 이용자</strong>에게만 ‘과거 사용량 기반 추정값 제출 허용’이 추가로 표시됩니다. 기본은 꺼짐입니다.</div>
+  </article>
+  <article class="step">
+    <div class="step-head"><span class="num">6</span> 확인하고 시작하기</div>
+    <div class="dialog">
+      <h2 class="dialog-title">5/5 · 설정 확인</h2>
+      <p class="desc">계약, 센서, 기준값, 수신자와 일정을 확인합니다.</p>
+      <dl class="summary">
+        <dt>계약</dt><dd>예시 계약</dd>
+        <dt>연결 센서</dt><dd>가스 누적 사용량</dd>
+        <dt>검침 기준값</dt><dd>128.6 m³</dd>
+        <dt>수신 휴대폰</dt><dd>내 휴대폰</dd>
+        <dt>보정 / 제출 알림</dt><dd>10:00 / 22:00 <span class="off">꺼짐</span></dd>
+        <dt>마감일 자동 제출</dt><dd>22:00 <span class="off">꺼짐</span></dd>
+      </dl>
+      <p class="desc">완료하면 전용 화면을 사용할 수 있습니다. 계약·고지서·과거 이력은 백그라운드에서 가져옵니다.</p>
+      <div class="buttons"><button>완료</button></div>
+    </div>
+    <div class="callout"><strong>완료는 제출이 아닙니다.</strong> 설치를 마치는 것만으로 계량기 숫자를 부산도시가스에 보내지 않습니다.</div>
+  </article>
+</div>
+<section class="after"><strong>설치 다음에는</strong><p>사이드바의 ‘부산도시가스’를 열어 요금·검침값을 확인하세요.<br>센서, 알림 일정, 제출 정책은 나중에 통합 설정에서 변경할 수 있습니다.</p></section>
+<footer><strong>설정 흐름 예시 · v0.4.0 기준</strong>　실제 설정 항목과 문구를 바탕으로 간결하게 재구성한 모의 화면입니다.<br>입력값·계약·기기는 모두 예시이며, 실제 HA 화면의 배치와 일부 표현은 다를 수 있습니다. 바깥 번호는 화면 순서, 안쪽 번호는 통합의 5단계 표시입니다.</footer>
+</main>
+<aside style="padding:20px 42px"><button id="export" style="pointer-events:auto;cursor:pointer">PNG 안내 이미지 저장용으로 만들기</button><p id="export-status"></p></aside>
+<script>
+// Export the complete code-rendered guide at 2x, independent of viewport stitching.
+document.getElementById('export').addEventListener('click', async () => {
+  const status = document.getElementById('export-status');
+  status.textContent = '이미지 생성 중…';
+  try {
+    await document.fonts.ready;
+    const guide = document.querySelector('main');
+    const width = 1120, height = Math.ceil(guide.getBoundingClientRect().height);
+    const wrapper = document.createElementNS('http://www.w3.org/1999/xhtml', 'div');
+    wrapper.setAttribute('style', 'font-family:Malgun Gothic,Segoe UI,sans-serif;color:#19332e;background:#edf2f2');
+    const style = document.createElement('style');
+    style.textContent = document.querySelector('style').textContent;
+    wrapper.append(style, guide.cloneNode(true));
+    const xml = new XMLSerializer().serializeToString(wrapper);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><foreignObject width="100%" height="100%">${xml}</foreignObject></svg>`;
+    const source = new Image();
+    source.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    await source.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = width * 2; canvas.height = height * 2;
+    canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+    const result = document.getElementById('exported-guide') || document.createElement('img');
+    result.id = 'exported-guide'; result.alt = '온보딩 안내 PNG';
+    result.style.cssText = 'display:block;width:1120px;height:auto';
+    result.src = canvas.toDataURL('image/png');
+    document.body.append(result);
+    status.textContent = `완료 · ${canvas.width} × ${canvas.height} px`;
+  } catch (error) { status.textContent = '생성 실패: ' + error.message; }
+});
+</script>
+</body></html>

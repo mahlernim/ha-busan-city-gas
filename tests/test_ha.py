@@ -53,6 +53,8 @@ async def test_login_only_one_contract_skips_selection(hass):
         result = await finish_login(flow)
     assert result["step_id"] == "source"
     result = await flow.async_step_source({})
+    assert result["step_id"] == "anchor"
+    result = await flow.async_step_anchor({})
     assert result["step_id"] == "notifications"
     result = await flow.async_step_notifications({"recipients": [], "weekly_day": "5"})
     assert result["step_id"] == "policy"
@@ -79,6 +81,19 @@ async def test_multiple_contract_selection(hass):
     assert result["step_id"] == "contracts"
     result = await flow.async_step_contracts({"contracts": ["second"]})
     assert flow.selected == [second]
+
+
+async def test_sensorless_onboarding_accepts_optional_physical_anchor(hass):
+    flow = GasConfigFlow()
+    flow.hass, flow.selected = hass, [CONTRACT]
+    flow.position = 0
+    await flow.async_step_source()
+    result = await flow.async_step_source({})
+    assert result["step_id"] == "anchor"
+    result = await flow.async_step_anchor({"reading": 35.1})
+    assert result["step_id"] == "notifications"
+    assert flow.current["initial_estimate"]["actual"] == "35.1"
+    assert flow.current["initial_estimate"]["source_last"] is None
 
 
 @pytest.mark.parametrize(

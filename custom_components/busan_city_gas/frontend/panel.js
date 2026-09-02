@@ -2,6 +2,7 @@
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
 const number = (value, digits = 1) => value === null || value === undefined ? "—" : Number(value).toLocaleString("ko-KR", {maximumFractionDigits: digits});
 const errors = {
+  source_waiting: "센서 연결 대기 중입니다. 유효한 센서값을 확인할 때까지 제출하지 않습니다.",
   submission_disabled: "현재 제출 기능이 중지되어 있습니다. 부산도시가스 홈페이지에서 직접 제출해 주세요.",
   submission_uncertain: "접수 여부가 불명확합니다. 홈페이지에서 확인해 주세요. 재전송은 중지했습니다.",
   submission_rejected: "서버가 저장 실패로 응답했고 재조회에서도 접수값을 확인하지 못했습니다. 구체적인 원인은 제공되지 않았습니다. 오늘은 다시 보내지 않습니다. 홈페이지에서 확인해 주세요.",
@@ -32,6 +33,8 @@ const errors = {
 };
 
 const shortDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value || "") ? `${Number(value.slice(5,7))}월 ${Number(value.slice(8,10))}일` : "미확인";
+const modelLabel = r => r.source_configured ? "실측 기준 + 센서 증가량" : ({historical:"과거 사용량 기반 추정",historical_blend:"과거 사용량 + 실측 추세 반영",recent_physical:"최근 실측 추세 기반 추정"}[r.estimation_method] || "추정 자료 확인 필요");
+const modelMessage = r => r.source_waiting ? errors.source_waiting : r.source_configured ? (r.gap ? "측정 공백 또는 초기화가 있습니다. 자동 제출 전에 실측 보정이 필요합니다." : "") : ({anchor_required:"계량기 기준값이 없습니다. 현재 계량기의 실제 숫자를 입력해 주세요.",insufficient_data:"추정 자료가 부족합니다. 실제 숫자는 기록할 수 있지만 증가 속도는 아직 계산할 수 없습니다.",learning_pending:"과거 사용량으로 추정 중입니다. 7일 이상 간격의 실측 기록이 쌓이면 최근 사용 추세도 반영합니다."}[r.estimation_status] || "");
 const windowMessage = r => {
   const period = `${shortDate(r.window_start)}부터 ${shortDate(r.window_end)}까지`;
   if(r.submission_status === "confirmed") return `이번 주기는 ${number(r.accepted)} m³로 접수가 확인되었습니다. 다시 제출할 필요가 없습니다.`;
@@ -108,7 +111,7 @@ class BusanCityGasPanel extends HTMLElement {
   async submit() {
     const row = this.current;
     const proposal = await this.call("proposal", {}, row);
-    const origin = proposal.origin === "historical" ? " (작년 사용량 기반 추정)" : "";
+    const origin = proposal.origin === "historical" ? " (과거 사용량·실측 기록 기반 추정)" : "";
     if(!window.confirm(`${row.label || "선택한 계약"}\n${proposal.value} m³${origin}을 부산도시가스에 제출할까요?\n소수점은 버리고 정수만 전송합니다. 접수된 값의 변경은 홈페이지에서 확인해 주세요.`)) {
       this.message = "제출을 취소했습니다. 검침값은 전송하지 않았습니다. 보정한 값은 유지됩니다.";
       return;
@@ -125,7 +128,7 @@ class BusanCityGasPanel extends HTMLElement {
     try {
       if(action === "refresh") {
         await this._hass.callWS({type:"busan_city_gas/refresh", entry_id:row.entry_id});
-        this.message = "조회 상태를 갱신했습니다.";
+        this.message = "요금·검침 정보 업데이트를 요청했습니다. 완료되면 화면에 반영됩니다.";
       } else if(action === "check") {
         this.message = receiptMessage(await this.call("check_submission"));
       } else if(action === "test") {
@@ -179,31 +182,32 @@ class BusanCityGasPanel extends HTMLElement {
     <div class="status" role="status" aria-live="polite">${esc(this.message)}</div>
     ${r ? `
       ${r.refreshing ? `<section role="status" aria-live="polite"><strong>공식 정보 조회 중</strong><p>${esc(r.refresh_progress)}</p><small>이미 불러온 검침값과 요금은 사용할 수 있습니다. 조회 완료 시 자동으로 갱신됩니다.</small></section>` : ""}
-      <section><small>${esc(r.label)} · ${r.origin === "historical" ? "작년 사용량 기반 추정" : r.source_configured ? "실측 기준 + 센서 증가량" : "수동 검침"}</small>
+      <section><small>${esc(r.label)} · ${esc(modelLabel(r))}</small>
       <div class="big">${fmt(r.reading)}</div><div class="muted">마지막 실측 ${fmt(r.actual)} · ${esc(r.actual_at || "아직 없음")}</div>
-      ${r.gap && r.source_configured ? '<p class="warning">측정 공백 또는 초기화가 있습니다. 자동 제출 전에 실측 보정이 필요합니다.</p>' : ""}
+      ${modelMessage(r) ? `<p class="warning">${esc(modelMessage(r))}</p>` : ""}
       <div class="actions">${button("confirm","맞음",r.local_reading === null)}${button("plus","+0.1",r.local_reading === null)}${button("minus","−0.1",r.local_reading === null)}</div>
       <label for="reading">현재 계량기에 보이는 숫자 (m³)</label><input id="reading" inputmode="decimal" type="number" step="0.1" min="0" max="99999" value="${esc(this.draft)}" placeholder="예: 35.0">
       <div class="actions">${button("apply","보정만 적용")}${button("apply-submit","보정하고 제출",r.submission_locked || !r.window_open || r.submission_blocked)}</div>
       <small>숫자만 입력하면 적용되지 않습니다. ±0.1은 추정값 조정이며 실측 확인과 구분됩니다.</small>
       <details><summary>계량기를 교체했나요?</summary><p>위에 새 계량기 숫자를 입력한 뒤 기준을 재설정하세요.</p>${button("replace","새 계량기 기준 설정")}</details></section>
-      <section><h2>가스요금</h2><div class="grid"><div><small>최근 확정 고지금액</small><div class="metric">${fmt(r.billed_amount,"원")}</div></div><div><small>이번 청구기간 예상액</small><div class="metric">${fmt(r.projected_amount,"원")}</div></div><div><small>현재까지 예상액</small><div class="metric">${fmt(r.accrued_amount,"원")}</div></div><div><small>최근 14일 사용일 평균</small><div class="metric">${number(r.average,2)} m³/일</div></div></div>
+      <section><h2>가스요금</h2><div class="grid"><div><small>최근 확정 고지금액</small><div class="metric">${fmt(r.billed_amount,"원")}</div></div><div><small>이번 청구기간 예상액</small><div class="metric">${fmt(r.projected_amount,"원")}</div></div><div><small>현재까지 예상액</small><div class="metric">${fmt(r.accrued_amount,"원")}</div></div><div><small>${r.source_configured ? "최근 14일 사용일 평균" : "추정 일사용량"}</small><div class="metric">${number(r.source_configured ? r.average : r.estimated_daily_usage,2)} m³/일</div></div></div>
       <p>현재까지 사용량 ${fmt(r.usage)} · 기간 전체 예상 ${fmt(r.projected_usage)}</p>
       ${r.due_date ? `<p>최근 고지서 납기일 ${esc(r.due_date)} · 고지 사용량 ${fmt(r.billed_usage)}</p>` : ""}
-      <p class="muted">최근 14일 중 ${r.average_days}일 기준 · 사용량 0인 날과 불완전한 날 제외</p><small>예상액은 확정 청구액이 아닙니다. 최신 확인 계수·요율을 사용하며 할인·정산은 다를 수 있습니다.</small>
-      ${r.period_start ? `<p>예상 사용기간 ${esc(r.period_start)} ~ ${esc(r.period_end)} (종료 예정)</p>` : ""}</section>
+      <p class="muted">${r.source_configured ? `최근 14일 중 ${r.average_days}일 기준 · 사용량 0인 날과 불완전한 날 제외` : `실측 학습 기간 ${number(r.learning_days || 0)}일 · 최근 실측 비중 ${number(Number(r.recent_weight || 0)*100,0)}% · 모델 기반 추정`}</p><small>예상액은 확정 청구액이 아닙니다. 최신 확인 계수·요율을 사용하며 할인·정산은 다를 수 있습니다.</small>
+      ${r.period_start ? `<p>예상 사용기간 ${esc(r.period_start)} ~ ${esc(r.period_end)} (종료 예정)</p>` : '<p class="muted">청구 시작 기준·예정 종료일을 확인하기 전에는 기간 사용량과 예상 요금이 준비 중으로 표시됩니다.</p>'}</section>
       <section><h2>자가검침</h2><p>입력 기간 ${esc(r.window_start || "확인 중")} ~ ${esc(r.window_end || "확인 중")}</p>
       <p role="status">${esc(windowMessage(r))}</p>
       <p>상태: ${esc(({not_submitted:"미제출",pending:"처리 중",uncertain:"접수 확인 필요",confirmed:"접수 확인됨",rejected:"서버 저장 실패 응답",not_sent:"전송 전 중단"})[r.submission_status] || r.submission_status)}${r.accepted != null ? ` · 조회된 접수값 ${fmt(r.accepted)}` : ""}</p>
       ${r.submission_proposed != null ? `<p>마지막 요청값 ${fmt(r.submission_proposed)} · ${esc(r.submission_attempted_at || "시각 미확인")}</p>` : ""}
       ${r.accepted_checked_at ? `<p class="muted">접수 상태 확인 시각 ${esc(r.accepted_checked_at)} · 이번 조회값 ${r.submission_observed != null ? fmt(r.submission_observed) : "미확인"}</p>` : ""}
       ${r.submission_status === "confirmed" && r.receipt_in_latest_read === false ? `<p class="warning">${esc(receiptMessage(r))}</p>` : ""}
-      <div class="actions">${button("check",r.submission_checking ? "접수 확인 중…" : "접수 상태만 확인",r.submission_checking)}</div>
+      <div class="actions">${button("check",r.submission_checking ? "제출 내역 확인 중…" : "제출 내역 확인",r.submission_checking)}</div>
       <small>접수 내역만 조회합니다. 검침값 제출·재전송 및 고지서 재조회는 하지 않습니다.</small>
       ${r.submission_locked ? '<p class="warning">현재 제출 기능이 중지되어 있습니다. 필요한 자가검침은 홈페이지에서 직접 해주세요.</p>' : ""}
       <p>마감일 자동 제출: ${r.automatic_submission ? "켜짐" : "꺼짐"}</p>
       ${r.automatic_submission_needs_confirmation ? '<p class="warning">이전 버전의 자동 제출 설정은 실행하지 않습니다. 사용하려면 통합 설정의 제출 정책에서 다시 켜고 저장해 주세요.</p>' : ""}
-      <div class="actions">${button("submit","제출값 확인",r.submission_locked || !r.window_open || r.submission_blocked || ["confirmed","pending","uncertain"].includes(r.submission_status))}${button("test","알림 테스트")}${this._hass?.user?.is_admin ? button("refresh",r.refreshing ? "조회 중…" : "공식 정보 새로고침",r.refreshing) : ""}</div>
+      <div class="actions">${button("submit","제출값 확인",r.submission_locked || !r.window_open || r.submission_blocked || ["confirmed","pending","uncertain"].includes(r.submission_status))}${button("test","알림 테스트")}${this._hass?.user?.is_admin ? button("refresh",r.refreshing ? "정보 업데이트 중…" : "요금·검침 정보 업데이트",r.refreshing) : ""}</div>
+      <p class="muted">정보 업데이트는 요금·접수 기간·검침 상태를 조회합니다. 보관된 과거 고지서는 재사용하며 검침값을 제출하지 않습니다.</p>
       <small>알림 발송 요청 ${r.notification.requested_count || 0}대 · 수신 확인 ${r.notification.received_count || 0}명</small>
       ${r.error ? `<p class="warning">공식 조회가 최신 상태가 아닙니다: ${esc(r.error)}</p>` : ""}<p class="muted">마지막 공식 조회 ${esc(r.last_refresh || "아직 없음")}</p>
       ${r.meter_error ? `<p class="warning">${esc(errorMessage({code:r.meter_error},r))}</p>` : ""}

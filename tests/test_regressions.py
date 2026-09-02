@@ -14,9 +14,17 @@ from custom_components.busan_city_gas.model import Estimate, GasError, MeterWind
 
 async def test_android_payload_string_auth_and_receipt(hass):
     key = CONTRACT.key
-    runtime = await make_runtime(hass, {"recipients": ["phone"]})
+    hass.states.async_set("sensor.gas_meter", "100")
+    runtime = await make_runtime(
+        hass, {"recipients": ["phone"], "source_entity": "sensor.gas_meter"}
+    )
     runtime.estimates[key] = Estimate(
-        value="35.04", actual="35", actual_at=dt_util.now().isoformat()
+        value="35.04",
+        actual="35",
+        actual_at=dt_util.now().isoformat(),
+        source_last="100",
+        source_at=dt_util.now().isoformat(),
+        gap=False,
     )
     phone_map = {
         "phone": {

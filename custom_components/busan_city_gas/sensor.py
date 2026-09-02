@@ -117,7 +117,23 @@ class GasSensor(SensorEntity):
                 "incomplete_days_excluded": True,
             }
         if self.description.key == "reading":
-            return {"origin": view["origin"], "physical_calibration_required": view["gap"]}
+            return {
+                "origin": view["origin"],
+                "physical_calibration_required": view["gap"]
+                if view["source_configured"]
+                else view["reading"] is None,
+                "source_waiting": view["source_waiting"],
+                **{
+                    key: view.get(key)
+                    for key in (
+                        "estimation_method",
+                        "estimated_daily_usage",
+                        "learning_days",
+                        "recent_weight",
+                        "estimation_status",
+                    )
+                },
+            }
         if self.description.key in ("accrued_amount", "projected_amount"):
             return {
                 "estimated": True,
