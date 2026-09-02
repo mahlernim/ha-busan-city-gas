@@ -156,10 +156,12 @@ class AccountCoordinator(DataUpdateCoordinator):
                 except GasError:
                     valid = False
                 if now < deadline and not valid:
-                    day = self.estimates[key].days.setdefault(
-                        now.date().isoformat(), {"volume": "0"}
-                    )
-                    day.update(complete=False, invalid=True)
+                    source_at = datetime.fromisoformat(self.estimates[key].source_at)
+                    for affected in {source_at.date(), now.date()}:
+                        day = self.estimates[key].days.setdefault(
+                            affected.isoformat(), {"volume": "0"}
+                        )
+                        day.update(complete=False, invalid=True)
                     return
                 self.startup_deadlines.pop(key, None)
                 if now >= deadline:
