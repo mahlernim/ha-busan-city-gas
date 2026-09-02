@@ -84,6 +84,9 @@ async def test_wait_recovers_once_and_day_is_incomplete(hass):
             assert not runtime.estimates[KEY].gap
             assert runtime.estimates[KEY].actual_at == (NOW - timedelta(days=1)).isoformat()
             assert runtime.estimates[KEY].days[NOW.date().isoformat()]["invalid"]
+            assert runtime.estimates[KEY].days[(NOW - timedelta(days=1)).date().isoformat()][
+                "invalid"
+            ]
             assert not runtime.estimates[KEY].days[NOW.date().isoformat()]["complete"]
         finally:
             await runtime.shutdown()
