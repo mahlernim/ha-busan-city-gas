@@ -9,6 +9,7 @@ from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import ServiceCall, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN, PANEL_PATH, VERSION
 from .coordinator import AccountCoordinator
@@ -16,6 +17,7 @@ from .model import GasError
 from .websocket import async_register as register_websocket
 
 PLATFORMS = ["sensor", "binary_sensor"]
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass, _config):

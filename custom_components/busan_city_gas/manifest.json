@@ -1,14 +1,14 @@
 {
   "domain": "busan_city_gas",
   "name": "부산도시가스",
-  "version": "0.2.0",
+  "after_dependencies": ["mobile_app"],
+  "codeowners": ["@mahlernim"],
   "config_flow": true,
+  "dependencies": ["frontend", "http", "panel_custom", "websocket_api"],
+  "documentation": "https://github.com/mahlernim/ha-busan-city-gas",
   "integration_type": "service",
   "iot_class": "cloud_polling",
-  "dependencies": ["frontend", "http", "panel_custom", "websocket_api"],
-  "after_dependencies": ["mobile_app"],
-  "requirements": ["beautifulsoup4==4.14.3"],
-  "documentation": "https://github.com/mahlernim/ha-busan-city-gas",
   "issue_tracker": "https://github.com/mahlernim/ha-busan-city-gas/issues",
-  "codeowners": ["@mahlernim"]
+  "requirements": ["beautifulsoup4==4.14.3"],
+  "version": "0.2.0"
 }
