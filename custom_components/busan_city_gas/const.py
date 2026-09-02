@@ -1,7 +1,7 @@
 """Integration defaults; write availability is not evidence of live validation."""
 
 DOMAIN = "busan_city_gas"
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 PANEL_PATH = "busan-city-gas"
 EVENT_UPDATED = f"{DOMAIN}_updated"
 BASE_URL = "https://ebpp.skens.com"

@@ -144,6 +144,10 @@ class AccountCoordinator(DataUpdateCoordinator):
         self.hass.bus.async_fire(EVENT_UPDATED, {"entry_id": self.entry.entry_id})
 
     def observe(self, key):
+        # Shutdown disconnects are expected; keep the last valid timestamp so
+        # restart grace still expires from that checkpoint, never from shutdown.
+        if self.hass.is_stopping:
+            return
         source = self.options(key)["source_entity"]
         if source:
             state = self.hass.states.get(source)
