@@ -28,7 +28,7 @@ test('server closed response overrides stale open screen',()=>{
  assert.match(context.errorMessage({code:'window_closed'},{...base,window_status:'open'}),/전송하지 않았습니다/);
 });
 test('auth, stale value, lower reading and uncertain have actionable errors',()=>{
- for(const code of ['reauth_required','stale_proposal','below_official_reading','submission_uncertain','submission_unverified']) {
+ for(const code of ['reauth_required','stale_proposal','below_official_reading','submission_uncertain','submission_disabled']) {
   const text=context.errorMessage({code},base);
   assert.ok(text.length>20);
   assert.ok(!text.includes(code));
@@ -60,4 +60,33 @@ test('receipt check action never requests a proposal, calibration or submission'
  assert.deepEqual(calls,['check_submission']);
  assert.match(panel.message,/재전송하지 않았습니다/);
  assert.equal(panel.busy,false);
+});
+
+test('cancelled confirmation never submits and leaves a clear message',async()=>{
+ const panel=Object.create(context.Panel.prototype);
+ panel.rows=[{key:'a',entry_id:'e',label:'예시 계약'}]; panel.render=()=>{};
+ const calls=[];
+ panel.call=async action=>{calls.push(action);return {id:'p',value:128,origin:'sensor'};};
+ context.window={confirm:()=>false};
+ await panel.submit();
+ assert.deepEqual(calls,['proposal']);
+ assert.match(panel.message,/취소.*전송하지 않았습니다/);
+});
+
+test('approved submission uses displayed integer, proposal and original contract',async()=>{
+ const panel=Object.create(context.Panel.prototype);
+ const row={key:'a',entry_id:'e',label:'예시 계약'};
+ panel.rows=[row]; panel.render=()=>{};
+ const calls=[];
+ panel.call=async(action,data,target)=>{
+  calls.push({action,data,target});
+  if(action==='proposal') {panel.rows=[{key:'b'}];return {id:'p',value:128,origin:'historical'};}
+  return {accepted:'128'};
+ };
+ context.window={confirm:text=>{assert.match(text,/예시 계약/);assert.match(text,/128 m³/);assert.match(text,/작년 사용량/);return true;}};
+ await panel.submit();
+ assert.equal(calls.length,2);
+ assert.equal(calls[1].data.proposal_id,'p');
+ assert.equal(calls[1].target,row);
+ assert.match(panel.message,/접수 확인: 128/);
 });

@@ -17,15 +17,18 @@ const params = new URLSearchParams(location.search);
 if(params.has("dark"))document.body.classList.add("dark");
 if(params.has("mobile"))document.body.classList.add("mobile");
 const state = {entry_id:"example-entry",key:"example-contract",label:"우리 집",reading:"128.6",local_reading:"128.6",origin:"sensor",actual:"126.2",actual_at:"2026-09-01 10:00",gap:false,source_configured:true,
- billed_amount:"17240",previous_amount:"18900",projected_amount:"21300",accrued_amount:"9400",average:"0.38",average_days:10,
- period_start:"2026-08-18",period_end:"2026-09-17",window_start:"2026-09-13",window_end:"2026-09-18",today:"2026-09-03",window_status:"before",window_open:false,submission_locked:true,submission_status:"not_submitted",accepted:null,
+ billed_amount:"17240",previous_amount:"18900",projected_amount:"21300",accrued_amount:"9400",usage:"8.6",projected_usage:"19.2",billed_usage:"15",due_date:"2026-08-31",average:"0.38",average_days:10,
+ period_start:"2026-08-18",period_end:"2026-09-17",window_start:"2026-09-13",window_end:"2026-09-18",today:"2026-09-03",window_status:"before",window_open:false,submission_locked:false,automatic_submission:false,submission_status:"not_submitted",accepted:null,
  notification:{},last_refresh:"2026-09-03 08:00",error:null,bills:[{month:"202608",amount:"17240",usage:"15"},{month:"202607",amount:"18900",usage:"17"},{month:"202606",amount:"22100",usage:"20"}],history:[]};
+if(params.has("open")){state.window_open=true;state.window_status="open";state.today="2026-09-15";}
 document.querySelector("busan-city-gas-panel").hass = {user:{is_admin:true},connection:{subscribeMessage:async()=>()=>{}},callWS:async message=>{
  if(message.type.endsWith("/list")) return [structuredClone(state)];
  if(message.type.endsWith("/calibrate")) {if(message.expected !== state.local_reading) throw {code:"stale_proposal"}; state.reading=state.local_reading=String(message.reading); if(message.physical)state.actual=state.local_reading; return structuredClone(state);}
  if(message.type.endsWith("/test_notification"))return {requested:1,failed:0};
  if(message.type.endsWith("/refresh"))return {};
  if(message.type.endsWith("/check_submission")){state.accepted_checked_at="2026-09-03 08:01";return structuredClone(state);}
- throw {code:"submission_unverified"};
+ if(message.type.endsWith("/proposal"))return {id:"example-proposal",value:Math.trunc(Number(state.local_reading)),origin:state.origin};
+ if(message.type.endsWith("/submit")){if(!state.window_open)throw {code:"window_closed"};state.submission_status="confirmed";state.submission_blocked=true;state.accepted=String(Math.trunc(Number(state.local_reading)));return {status:"confirmed",accepted:state.accepted};}
+ throw {code:"submission_disabled"};
 }};
 </script></html>

@@ -65,7 +65,7 @@ check_submission:
         text:
 submit:
   name: 확인한 검침값 제출
-  description: 준비한 요청 ID가 필요하며, 실제 접수 검증 전에는 잠금 오류를 반환합니다.
+  description: 준비한 요청 ID의 정수값을 제출합니다. 접수 기간과 권한을 재확인하고, 결과가 불명확하면 재전송하지 않습니다.
   fields:
     entry_id:
       required: true

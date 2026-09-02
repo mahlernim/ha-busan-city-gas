@@ -134,10 +134,13 @@ async def test_login_bad_password_safe_error():
     assert "raw private content" not in str(error.value)
 
 
-async def test_production_submit_is_not_an_http_request():
+async def test_emergency_disabled_submit_is_not_an_http_request(monkeypatch):
+    from custom_components.busan_city_gas import portal
+
+    monkeypatch.setattr(portal, "SUBMISSION_ENABLED", False)
     client = PortalClient(None, "test-user", "test-password")
     client._request = AsyncMock()
-    with pytest.raises(GasError, match="submission_unverified"):
+    with pytest.raises(GasError, match="submission_disabled"):
         await client.submit(None, None, 35, now=datetime.now(timezone.utc))
     client._request.assert_not_called()
 

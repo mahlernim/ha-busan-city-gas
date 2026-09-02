@@ -1,28 +1,61 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="brand/dark_logo.png">
-  <img src="brand/logo.png" alt="부산도시가스 · Home Assistant" width="480">
-</picture>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="brand/dark_icon.png">
+    <img src="brand/icon.png" alt="부산도시가스" width="88" height="88">
+  </picture>
+</p>
 
-# 부산도시가스를 Home Assistant에서
+<h1 align="center">부산도시가스 · Home Assistant</h1>
 
-가스요금을 확인하고, 계량기 숫자를 기록하고, 센서가 있다면 현재 검침값까지 추정해 보세요.
+<p align="center">가스요금 조회부터 실시간 검침 추정, 보정과 자가검침 제출까지</p>
+
+<p align="center">
+  <a href="https://github.com/mahlernim/ha-busan-city-gas/releases/latest"><img src="https://img.shields.io/github/v/release/mahlernim/ha-busan-city-gas?style=flat-square&amp;label=version" alt="최신 버전"></a>
+  <a href="docs/installation.md"><img src="https://img.shields.io/badge/Home%20Assistant-2026.7.4%2B-18BCF2?style=flat-square&amp;logo=homeassistant&amp;logoColor=white" alt="Home Assistant 2026.7.4 이상"></a>
+  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=mahlernim&amp;repository=ha-busan-city-gas&amp;category=integration"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5?style=flat-square" alt="HACS 사용자 지정 저장소"></a>
+  <a href="https://github.com/mahlernim/ha-busan-city-gas/actions/workflows/validate.yml"><img src="https://img.shields.io/github/actions/workflow/status/mahlernim/ha-busan-city-gas/validate.yml?branch=main&amp;style=flat-square&amp;label=checks" alt="자동 검증 상태"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/mahlernim/ha-busan-city-gas?style=flat-square" alt="MIT 라이선스"></a>
+</p>
+
+<p align="center"><a href="docs/installation.md">설치하기</a> · <a href="docs/usage.md">사용법</a> · <a href="docs/troubleshooting.md">문제 해결</a> · <a href="docs/feedback.md">문의·제안</a></p>
+
+지난달 가스요금이 얼마였는지 확인하고, 지금까지 얼마나 썼는지 살펴보고, 자가검침까지 Home Assistant에서 처리하세요.
 
 부산도시가스 이용자를 위한 **비공식 Home Assistant 통합**입니다. 별도 카드나 대시보드를 만들지 않아도 전용 화면에서 조회와 보정을 할 수 있습니다.
 
-> **처음 공개하는 버전으로, 사용 후기를 기다리고 있습니다.**
-> 요금 조회·검침 추정·보정·접수 상태 조회를 이용할 수 있습니다.
-> **부산도시가스로 검침값을 보내는 기능은 아직 사용할 수 없습니다.**
-> 필요한 자가검침은 기존처럼 부산도시가스 홈페이지에서 직접 해주세요.
+## 무엇을 입력하나요?
 
-## 이런 일을 할 수 있어요
+처음에는 **부산도시가스 홈페이지 회원 아이디와 비밀번호**만 있으면 됩니다. 고객번호나 계량기 번호를 직접 찾을 필요는 없습니다. 연결된 계약을 불러오며, 여러 개라면 사용할 계약을 선택합니다.
 
-- 최근 가스요금, 지난 고지서, 사용량과 납기일 확인
-- 누적 가스센서를 연결해 현재 검침값과 예상 요금 확인
-- 계량기 숫자를 직접 입력하거나 `맞음 / +0.1 / −0.1`로 보정
-- Android 휴대폰으로 주간 검침 보정 알림 받기
-- 자가검침 가능 기간과 접수 내역 확인
+추가 기능은 필요한 것만 설정하세요.
 
-센서가 없어도 요금 조회와 수동 검침 기록을 사용할 수 있습니다. 예상 요금은 실제 청구액과 다를 수 있습니다.
+| 준비하거나 입력할 것 | 사용할 수 있는 기능 |
+| --- | --- |
+| 회원 아이디·비밀번호 | 최근·과거 고지서의 요금과 사용량, 납기일, 자가검침 접수 기간·상태 조회 |
+| 계량기에 실제로 보이는 숫자 | 검침 기록·보정, 접수 기간에 확인한 숫자 제출 |
+| HA의 누적 가스 사용량 센서 + 현재 계량기 숫자 | 센서 증가량을 더한 현재 검침값 추정, 사용 추이에 따른 예상 사용량·요금 |
+| Android 휴대폰의 HA Companion App | 주간 검침 보정 알림, 제출할지 묻는 알림과 바로가기 |
+
+**가스센서 없이도 사용할 수 있습니다.** 요금 조회와 수동 검침 기록·제출이 가능하며, 전년도 자료가 있으면 그 사용량을 기준으로 예상치를 보여줍니다. 센서와 휴대폰 알림은 나중에 연결해도 됩니다.
+
+## 어떤 정보를 볼 수 있나요?
+
+- **확정된 요금:** 최근 고지금액, 지난 고지서와 사용량, 납기일을 확인합니다.
+- **현재 검침값:** 마지막에 확인한 계량기 숫자에 센서로 측정한 증가량을 더해 보여줍니다. 실제 숫자와 차이가 나면 보정할 수 있습니다.
+- **이번 청구기간 예상:** 현재까지 사용량·요금과 청구기간 끝까지의 예상 사용량·요금을 확인합니다. 추정의 기준과 자료 부족 여부도 표시합니다.
+- **자가검침 상태:** 언제 입력할 수 있는지, 어떤 값이 접수되었는지 확인합니다.
+
+계량기 **검침값은 누적된 숫자**이고, **사용량은 기간 동안 늘어난 양**입니다. 홈페이지에서 받아온 고지금액은 확정값이지만, 예상 요금은 사용 추이·요율로 계산한 참고값이며 실제 청구액과 다를 수 있습니다.
+
+## 평소에는 이렇게 사용하세요
+
+1. **요금 확인:** 사이드바의 부산도시가스 화면에서 고지금액과 예상액을 봅니다. 별도 대시보드 편집은 필요 없습니다.
+2. **검침 보정:** 실제 계량기 숫자와 같으면 `맞음`, 조금 다르면 `+0.1 / −0.1`, 차이가 크면 숫자를 입력하고 **보정만 적용**을 누릅니다. 보정은 부산도시가스에 제출하는 동작이 아닙니다.
+3. **자가검침 제출:** 접수 기간에 **제출값 확인**을 누르고 계약과 정수값을 확인한 뒤 승인합니다. 예를 들어 128.6 m³라면 128 m³를 보냅니다. **보정하고 제출**도 보정 후 별도 확인을 거칩니다.
+
+주간 보정 알림을 켜면 기본 토요일 오전 10시에 안내하며 시간은 변경할 수 있습니다. 제출 알림을 켜면 접수 기간에 제출 여부를 묻습니다. **마감일 자동 제출은 별도 옵션이며 기본 꺼짐**입니다. 켜면 설정 시각에 접수 여부를 확인한 뒤 전송합니다.
+
+요청 응답만으로 성공이라 표시하지 않고 접수값을 다시 확인합니다. 결과가 불명확하면 중복 전송을 막고 확인 방법을 안내합니다. 이미 접수된 값의 수정은 부산도시가스 홈페이지에서 확인하세요.
 
 ## 화면 미리보기
 
@@ -32,7 +65,7 @@
 
 ## 설치하기
 
-**Home Assistant 2026.7.4 이상**과 부산도시가스 홈페이지 회원 계정이 필요합니다. 간편조회용 정보가 아닌 회원 아이디·비밀번호를 사용합니다.
+**Home Assistant 2026.7.4 이상**이 필요합니다. 로그인에는 간편조회용 정보가 아닌 홈페이지 회원 아이디·비밀번호를 사용합니다.
 
 [![HACS에서 열기](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=mahlernim&repository=ha-busan-city-gas&category=integration)
 
@@ -44,11 +77,11 @@ HACS가 설정되어 있다면 위 버튼을 누르세요. 처음에는 사용�
 
 [처음 설치하는 방법](docs/installation.md) · [검침 보정과 알림 사용법](docs/usage.md) · [문제 해결](docs/troubleshooting.md)
 
-## 사용 후기를 보내주세요
+## 도움이 필요하신가요?
 
-설치가 잘 됐는지, 고지금액이 맞는지, 휴대폰 알림이 도착하는지 알려주세요. 개발 지식은 필요하지 않습니다.
+설치나 사용 중 궁금한 점은 문제 해결 안내를 확인하세요. 해결되지 않는 문제나 개선 의견은 GitHub에 남길 수 있습니다.
 
-[테스트 참여 안내](docs/testing.md) · [사용 후기·오류 제보](https://github.com/mahlernim/ha-busan-city-gas/issues/new?template=test-report.yml)
+[문의·오류 제보 안내](docs/feedback.md) · [문의 남기기](https://github.com/mahlernim/ha-busan-city-gas/issues/new?template=test-report.yml)
 
 **아이디·비밀번호·계약번호·주소·원본 고지서는 공개 게시물에 올리지 마세요.** 화면 사진을 첨부할 때도 개인정보를 가려주세요.
 
@@ -56,7 +89,7 @@ HACS가 설정되어 있다면 위 버튼을 누르세요. 처음에는 사용�
 
 - 부산도시가스에서 제공하거나 운영하는 공식 앱이 아닙니다. 홈페이지 변경에 따라 조회가 중단될 수 있습니다.
 - 예상 사용량·요금은 참고용입니다. 결제나 가스밸브 제어 기능은 없습니다.
-- 알림은 선택 사항이며, 자동 제출 설정을 켜더라도 이 버전에서는 검침값을 전송하지 않습니다.
+- 알림과 자동 제출은 별도 선택 사항입니다. [제출·자동 제출 사용법](docs/usage.md)을 확인한 뒤 설정하세요.
 - 기존 가스센서와 에너지 통계는 그대로 유지합니다.
 - [개인정보·권한 안내](docs/privacy.md) · [업데이트 내용](CHANGELOG.md) · [라이선스](LICENSE)
 

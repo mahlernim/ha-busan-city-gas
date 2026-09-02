@@ -150,7 +150,6 @@ async def fake_portal(monkeypatch):
     await site.start()
     port = site._server.sockets[0].getsockname()[1]
     monkeypatch.setattr(portal, "BASE_URL", f"http://127.0.0.1:{port}")
-    monkeypatch.setattr(portal, "SUBMISSION_VERIFIED", True)
     trace = aiohttp.TraceConfig()
 
     async def loopback_only(session, context, params):
@@ -177,7 +176,7 @@ async def manager_for(fake, client):
     async def write(window, value):
         await client.submit(CONTRACT, window, value, now=NOW)
 
-    manager = SubmissionManager(state, persist, query, write, verified=True)
+    manager = SubmissionManager(state, persist, query, write, enabled=True)
     initial = await query()
     fake.checkpoint = lambda: saved[-1][initial.cycle]
     proposal = manager.proposal("35.9", "sensor", NOW, initial)
@@ -232,7 +231,7 @@ async def test_ambiguous_http_outcome_remains_locked_after_restart(fake_portal, 
         await manager.submit(proposal["id"], NOW, lambda p, w: None)
     assert "PRIVATE" not in str(error.value)
     restored = SubmissionManager(
-        copy.deepcopy(manager.state), AsyncMock(), manager.query, manager.write, verified=True
+        copy.deepcopy(manager.state), AsyncMock(), manager.query, manager.write, enabled=True
     )
     again = restored.proposal("35", "sensor", NOW, window)
     with pytest.raises(GasError, match="submission_uncertain"):
@@ -305,9 +304,9 @@ async def test_changed_contract_form_never_sends_a_write(fake_portal):
 
 async def test_production_gate_blocks_even_with_valid_mock_metadata(fake_portal, monkeypatch):
     fake, client = fake_portal
-    monkeypatch.setattr(portal, "SUBMISSION_VERIFIED", False)
+    monkeypatch.setattr(portal, "SUBMISSION_ENABLED", False)
     window = portal.meter_from_json({"list": [fake.row()]})
-    with pytest.raises(GasError, match="submission_unverified"):
+    with pytest.raises(GasError, match="submission_disabled"):
         await client.submit(CONTRACT, window, 35, now=NOW)
     assert not fake.requests
 
@@ -378,7 +377,6 @@ async def test_ha_panel_handler_through_runtime_to_http(fake_portal, hass, monke
     fake, client = fake_portal
     fake.mode = "success" if mode in {"unauthorized", "notification_failure"} else mode
     monkeypatch.setattr(test_ha, "CONTRACT", CONTRACT)
-    monkeypatch.setattr(coordinator, "SUBMISSION_VERIFIED", True)
     monkeypatch.setattr(coordinator.dt_util, "now", lambda: NOW)
     runtime = await test_ha.make_runtime(hass)
     runtime.client = client

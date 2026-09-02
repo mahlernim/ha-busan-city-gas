@@ -9,7 +9,7 @@ from custom_components.busan_city_gas.submission import SubmissionManager
 NOW = datetime(2026, 9, 18, 22, tzinfo=timezone.utc)
 
 
-def setup(*, verified=True, error=False):
+def setup(*, enabled=True, error=False):
     state, calls, saved = {}, [], []
     window = MeterWindow("2026-09-13", "2026-09-18", "27", "meter", eligible=True)
 
@@ -26,13 +26,13 @@ def setup(*, verified=True, error=False):
             raise TimeoutError()
         window.submitted = str(value)
 
-    return SubmissionManager(state, persist, query, write, verified=verified), window, calls, saved
+    return SubmissionManager(state, persist, query, write, enabled=enabled), window, calls, saved
 
 
 async def test_write_gate_never_calls_transport():
-    manager, window, calls, _ = setup(verified=False)
+    manager, window, calls, _ = setup(enabled=False)
     proposal = manager.proposal("35.9", "sensor", NOW, window)
-    with pytest.raises(GasError, match="submission_unverified"):
+    with pytest.raises(GasError, match="submission_disabled"):
         await manager.submit(proposal["id"], NOW, lambda p, w: None)
     assert not calls
 
@@ -56,7 +56,7 @@ async def test_ambiguous_response_no_retry_even_after_restart():
     with pytest.raises(GasError, match="submission_uncertain"):
         await manager.submit(p["id"], NOW, lambda p, w: None)
     manager2 = SubmissionManager(
-        manager.state, manager.persist, manager.query, manager.write, verified=True
+        manager.state, manager.persist, manager.query, manager.write, enabled=True
     )
     p2 = manager2.proposal("35", "sensor", NOW, window)
     with pytest.raises(GasError, match="submission_uncertain"):
