@@ -82,9 +82,9 @@ class GasSensor(SensorEntity):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, contract_key)},
             name=coordinator.contracts[contract_key].label,
-            manufacturer="부산도시가스",
+            manufacturer=coordinator.provider.name,
             model="온라인 계약",
-            configuration_url="https://ebpp.skens.com/busan/charge/ask.do",
+            configuration_url=coordinator.provider.billing_url,
         )
 
     @property

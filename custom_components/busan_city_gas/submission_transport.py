@@ -30,7 +30,9 @@ class SubmissionUncertain(GasError):
     """A write may have happened. Never retry the POST automatically."""
 
 
-def build_payload(contract, window: MeterWindow, value: int, html: str, now: datetime) -> dict:
+def build_payload(
+    contract, window: MeterWindow, value: int, html: str, now: datetime, provider=None
+) -> dict:
     # Local import avoids coupling read-only parsing to the transport at startup.
     from .portal import contracts_from_html, document, opaque, portal_date
 
@@ -46,7 +48,7 @@ def build_payload(contract, window: MeterWindow, value: int, html: str, now: dat
         raise SubmissionNotSent("below_official_reading")
     if not any(
         c.key == contract.key and c.bpno == contract.bpno and c.cano == contract.cano
-        for c in contracts_from_html(html)
+        for c in contracts_from_html(html, provider)
     ):
         raise SubmissionNotSent("submission_contract_changed")
     soup = document(html)
@@ -87,16 +89,24 @@ def build_payload(contract, window: MeterWindow, value: int, html: str, now: dat
     }
 
 
-async def send_once(session, base_url: str, payload: dict, *, timeout: float = 25) -> None:
+async def send_once(
+    session,
+    base_url: str,
+    payload: dict,
+    *,
+    timeout: float = 25,
+    form_path: str = FORM_PATH,
+    submit_path: str = SUBMIT_PATH,
+) -> None:
     """One form POST, no redirects, login replay or retry of any kind."""
     try:
         async with session.post(
-            base_url + SUBMIT_PATH,
+            base_url + submit_path,
             data=payload,
             allow_redirects=False,
             timeout=aiohttp.ClientTimeout(total=timeout),
             headers={
-                "Referer": base_url + FORM_PATH,
+                "Referer": base_url + form_path,
                 "Origin": base_url,
                 "X-Requested-With": "XMLHttpRequest",
             },

@@ -20,8 +20,10 @@ def test_manifest_and_translation_schemas():
     assert source == json.loads((ROOT / "translations/en.json").read_text(encoding="utf-8"))
     assert set(source["config"]["step"]) == {
         "user",
+        "credentials",
         "login",
         "contracts",
+        "tariff",
         "source",
         "anchor",
         "notifications",

@@ -92,18 +92,42 @@ class Bill:
 @dataclass
 class Tariff:
     effective: str
-    first_rate: str
-    second_rate: str
-    threshold_mj: str = "516"
+    bands: list[dict]
+    base_charge: str
+    profile: str = "residential"
 
-    def estimate(self, usage: Decimal, coefficient: str, heat_factor: str, base: str) -> Decimal:
-        heat = trunc(usage * decimal(coefficient) * decimal(heat_factor), 4)
-        boundary = decimal(self.threshold_mj)
-        subtotal = (
-            decimal(base)
-            + trunc(min(heat, boundary) * decimal(self.first_rate))
-            + trunc(max(Decimal(0), heat - boundary) * decimal(self.second_rate))
+    @classmethod
+    def load(cls, data: dict) -> Tariff:
+        if "bands" in data:
+            return cls(**data)
+        return cls(
+            data["effective"],
+            [
+                {"up_to_mj": data.get("threshold_mj", "516"), "rate": data["first_rate"]},
+                {"up_to_mj": None, "rate": data["second_rate"]},
+            ],
+            data.get("base_charge", "0"),
         )
+
+    def estimate(
+        self, usage: Decimal, coefficient: str, heat_factor: str, base: str | None = None
+    ) -> Decimal:
+        heat = trunc(usage * decimal(coefficient) * decimal(heat_factor), 4)
+        remaining, prior = heat, Decimal(0)
+        energy = Decimal(0)
+        for band in self.bands:
+            limit = decimal(band["up_to_mj"]) if band.get("up_to_mj") is not None else None
+            quantity = remaining if limit is None else min(remaining, limit - prior)
+            if quantity > 0:
+                energy += trunc(quantity * decimal(band["rate"]))
+                remaining -= quantity
+            if limit is not None:
+                prior = limit
+            if remaining <= 0:
+                break
+        if remaining > 0:
+            raise GasError("tariff_schema_changed")
+        subtotal = decimal(base if base is not None else self.base_charge) + energy
         return trunc((subtotal + trunc(subtotal / 10)) / 10) * 10
 
 

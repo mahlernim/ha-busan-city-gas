@@ -43,8 +43,9 @@ async def test_login_progress_reuses_task_and_cancel_closes_it(hass):
     flow.hass = hass
     flow.context = {"source": "user"}
     with patch.object(PortalClient, "contracts", slow_login):
-        first = await flow.async_step_user({"username": "test", "password": "fake"})
-        second = await flow.async_step_user({"username": "test", "password": "fake"})
+        await flow.async_step_user({"provider_id": "busan"})
+        first = await flow.async_step_credentials({"username": "test", "password": "fake"})
+        second = await flow.async_step_credentials({"username": "test", "password": "fake"})
         assert first["progress_task"] is second["progress_task"]
         task = flow.login_task
         flow.async_remove()

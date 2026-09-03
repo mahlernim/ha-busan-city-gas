@@ -7,6 +7,7 @@ import pytest
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.util import dt as dt_util
 
+from custom_components.busan_city_gas import async_migrate_entry
 from custom_components.busan_city_gas.config_flow import GasConfigFlow, GasOptionsFlow
 from custom_components.busan_city_gas.const import DEFAULT_OPTIONS, DOMAIN
 from custom_components.busan_city_gas.coordinator import AccountCoordinator
@@ -18,7 +19,9 @@ CONTRACT = Contract("test-key", "test-bp", "test-ca", "테스트 계약")
 
 
 async def finish_login(flow):
-    result = await flow.async_step_user({"username": "test", "password": "not-real"})
+    result = await flow.async_step_user({"provider_id": "busan"})
+    assert result["step_id"] == "credentials"
+    result = await flow.async_step_credentials({"username": "test", "password": "not-real"})
     assert result["type"] == "progress"
     assert "not-real" not in str(result)
     await flow.login_task
@@ -42,6 +45,22 @@ def entry(options=None):
     )
 
 
+async def test_v1_migration_preserves_busan_identity_and_consent(hass):
+    item = entry({"automatic_submission": True, "automatic_submission_confirmed": True})
+    original_unique_id = item.unique_id
+    original_contract = item.data["contracts"][0]
+    hass.config_entries._entries[item.entry_id] = item
+    assert await async_migrate_entry(hass, item)
+    assert item.version == 2
+    assert item.data["provider_id"] == "busan"
+    assert item.unique_id == original_unique_id
+    assert item.data["contracts"][0] == original_contract
+    settings = item.options["contracts"][CONTRACT.key]
+    assert settings["automatic_submission"] and settings["automatic_submission_confirmed"]
+    assert settings["tariff_region"] == "default"
+    assert settings["tariff_profile"] == "residential"
+
+
 async def test_login_only_one_contract_skips_selection(hass):
     flow = GasConfigFlow()
     flow.hass = hass
@@ -51,6 +70,10 @@ async def test_login_only_one_contract_skips_selection(hass):
         AsyncMock(return_value=[CONTRACT]),
     ):
         result = await finish_login(flow)
+    assert result["step_id"] == "tariff"
+    result = await flow.async_step_tariff(
+        {"tariff_region": "default", "tariff_profile": "residential"}
+    )
     assert result["step_id"] == "source"
     result = await flow.async_step_source({})
     assert result["step_id"] == "anchor"
@@ -65,6 +88,34 @@ async def test_login_only_one_contract_skips_selection(hass):
     assert "not-real" not in str(result)
     result = await flow.async_step_summary({})
     assert result["type"] == "create_entry"
+
+
+async def test_koone_onboarding_requires_tariff_region_and_saves_provider(hass):
+    flow = GasConfigFlow()
+    flow.hass = hass
+    flow.context = {"source": "user"}
+    result = await flow.async_step_user({"provider_id": "koone"})
+    assert result["step_id"] == "credentials"
+    with patch(
+        "custom_components.busan_city_gas.config_flow.PortalClient.contracts",
+        AsyncMock(return_value=[CONTRACT]),
+    ):
+        result = await flow.async_step_credentials({"username": "test", "password": "not-real"})
+        await flow.login_task
+        await flow.async_step_login()
+        result = await flow.async_step_login_result()
+    assert result["step_id"] == "tariff"
+    result = await flow.async_step_tariff(
+        {"tariff_region": "gyeonggi", "tariff_profile": "residential"}
+    )
+    assert result["step_id"] == "source"
+    await flow.async_step_source({})
+    await flow.async_step_anchor({})
+    await flow.async_step_notifications({"recipients": [], "weekly_day": "5"})
+    await flow.async_step_policy({"automatic_submission": False, "deadline_time": "22:00:00"})
+    result = await flow.async_step_summary({})
+    assert result["data"]["provider_id"] == "koone"
+    assert result["options"]["contracts"][CONTRACT.key]["tariff_region"] == "gyeonggi"
     assert result["options"]["contracts"][CONTRACT.key]["source_entity"] == ""
 
 

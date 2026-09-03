@@ -74,7 +74,7 @@ def test_tariff_parser():
     tariff = tariff_from_html(
         "<p>2026-09-01</p><table><tr><td>516MJ 까지</td><td>23.2186</td></tr><tr><td>516MJ 초과</td><td>23.2186</td></tr></table>"
     )
-    assert tariff.first_rate == "23.2186"
+    assert tariff.bands[0]["rate"] == "23.2186"
 
 
 def synthetic_bill():

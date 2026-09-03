@@ -1,6 +1,6 @@
 {
   "domain": "busan_city_gas",
-  "name": "부산도시가스",
+  "name": "SK E&S 도시가스",
   "after_dependencies": ["mobile_app"],
   "codeowners": ["@mahlernim"],
   "config_flow": true,
@@ -10,5 +10,5 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/mahlernim/ha-busan-city-gas/issues",
   "requirements": ["beautifulsoup4==4.14.3"],
-  "version": "0.4.1"
+  "version": "0.5.0"
 }

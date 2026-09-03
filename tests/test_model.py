@@ -116,7 +116,14 @@ def test_linear_forecast_and_gap_no_fallback():
         days={"2026-09-01": {"volume": "2", "complete": True}},
     )
     w = MeterWindow("2026-09-13", "2026-09-18", "27", "meter", "2026-09-17", True)
-    result = forecast(e, [bill()], w, True, NOW, Tariff("2026-09-01", "23.2186", "23.2186"))
+    result = forecast(
+        e,
+        [bill()],
+        w,
+        True,
+        NOW,
+        Tariff("2026-09-01", [{"up_to_mj": None, "rate": "23.2186"}], "900"),
+    )
     assert result["usage"] == "8"
     assert result["projected_usage"] == "39.0"  # 15.5 days remaining
     assert result["average_days"] == 1
@@ -146,7 +153,14 @@ def test_heat_segment_truncation_june_known_values():
 
 
 def test_tariff_bands_truncate_separately():
-    tariff = Tariff("2026-09-01", "23.2186", "23.2186")
+    tariff = Tariff(
+        "2026-09-01",
+        [
+            {"up_to_mj": "516", "rate": "23.2186"},
+            {"up_to_mj": None, "rate": "23.2186"},
+        ],
+        "900",
+    )
     heat = Decimal("600")
     expected_subtotal = (
         Decimal(900)
@@ -155,3 +169,16 @@ def test_tariff_bands_truncate_separately():
     )
     expected = int((expected_subtotal + int(expected_subtotal / 10)) / 10) * 10
     assert tariff.estimate(heat, "1", "1", "900") == expected
+
+
+def test_legacy_tariff_cache_loads_without_changing_busan_calculation():
+    tariff = Tariff.load(
+        {
+            "effective": "2026-09-01",
+            "first_rate": "23.2186",
+            "second_rate": "23.2186",
+            "threshold_mj": "516",
+        }
+    )
+    assert tariff.bands[0]["up_to_mj"] == "516"
+    assert tariff.estimate(Decimal("600"), "1", "1", "900") > 0
