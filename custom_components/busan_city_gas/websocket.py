@@ -132,7 +132,7 @@ async def ws_test_notification(hass, connection, msg):
             msg["id"],
             await item.send_message(
                 msg["key"],
-                "부산도시가스 알림 테스트",
+                f"{item.provider.name} 알림 테스트",
                 "알림 발송 요청이 정상적으로 처리되었습니다.",
                 kind="test",
             ),

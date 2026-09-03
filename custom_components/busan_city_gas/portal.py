@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 
 from .const import BASE_URL, SUBMISSION_ENABLED
 from .model import Bill, GasError, MeterWindow, Segment, Tariff, decimal
+from .provider import Provider, default_profile, get_provider, profile_match
 
 
 class AuthenticationError(GasError):
@@ -45,7 +46,8 @@ def document(html: str) -> BeautifulSoup:
     return soup
 
 
-def contracts_from_html(html: str) -> list[Contract]:
+def contracts_from_html(html: str, provider: Provider | None = None) -> list[Contract]:
+    provider = provider or get_provider("busan")
     soup = document(html)
     bp = re.search(r'BPNO\s*:\s*["\'](\d+)["\']', html)
     if not bp:
@@ -55,7 +57,7 @@ def contracts_from_html(html: str) -> list[Contract]:
         cano = node.get("value", "")
         if not cano.isdigit():
             raise GasError("contract_schema_changed")
-        key = opaque(f"C000:{bp[1]}:{cano}")
+        key = opaque(f"{provider.code}:{bp[1]}:{cano}")
         if not any(c.key == key for c in result):
             result.append(Contract(key, bp[1], cano, f"계약 {cano}"))
     return result
@@ -207,18 +209,62 @@ def bill_from_html(html: str, month: str | None = None) -> Bill:
     return bill
 
 
-def tariff_from_html(html: str) -> Tariff:
+def tariff_from_html(
+    html: str, provider: Provider | None = None, tariff_profile: str | None = None
+) -> Tariff:
+    provider = provider or get_provider("busan")
+    tariff_profile = tariff_profile or default_profile(provider)
+    match = profile_match(provider, tariff_profile)
     soup = document(html)
     text = soup.get_text(" ", strip=True)
     effective = re.search(r"20\d{2}-\d{2}-\d{2}", text)
-    first = re.search(r"516\s*MJ\s*까지\s*([\d.]+)", text, re.I)
-    second = re.search(r"516\s*MJ\s*초과\s*([\d.]+)", text, re.I)
-    if not (effective and first and second):
+    row_nodes = soup.select("tr")
+    rows = [" ".join(node.stripped_strings) for node in row_nodes]
+
+    def numbers(value: str) -> list[str]:
+        return re.findall(r"(?<!\d)(?:\d{1,3}(?:,\d{3})+|\d+\.\d+)(?!\d)", value)
+
+    matched = [row for row in rows if match in row]
+    if not effective or (not provider.threshold_mj and len(matched) != 1):
         raise GasError("tariff_schema_changed")
-    return Tariff(portal_date(effective[0]), str(decimal(first[1])), str(decimal(second[1])))
+    base = "0"
+    for node in row_nodes:
+        node_text = node.get_text(" ", strip=True)
+        if match not in node_text and not (provider.threshold_mj and "주택" in node_text):
+            continue
+        numeric_cells = [
+            cell.get_text(strip=True).replace(",", "")
+            for cell in node.find_all(["th", "td"], recursive=False)
+            if re.fullmatch(r"[\d,.]+", cell.get_text(strip=True))
+        ]
+        if len(numeric_cells) >= 2:
+            base = numeric_cells[-2]
+            break
+    if provider.threshold_mj:
+        threshold = provider.threshold_mj
+        lower = next(
+            (row for row in rows if threshold in row and ("까지" in row or "이하" in row)), None
+        )
+        upper = next((row for row in rows if threshold in row and "초과" in row), None)
+        if lower and upper and numbers(lower) and numbers(upper):
+            bands = [
+                {"up_to_mj": threshold, "rate": numbers(lower)[-1].replace(",", "")},
+                {"up_to_mj": None, "rate": numbers(upper)[-1].replace(",", "")},
+            ]
+        else:
+            raise GasError("tariff_schema_changed")
+    else:
+        rates = [numbers(row)[-1].replace(",", "") for row in matched if numbers(row)]
+        if len(rates) != 1:
+            raise GasError("tariff_schema_changed")
+        bands = [{"up_to_mj": None, "rate": rates[0]}]
+    return Tariff(portal_date(effective[0]), bands, base, tariff_profile)
 
 
-def caloric_from_json(payload: dict, start: str, end: str) -> dict:
+def caloric_from_json(
+    payload: dict, start: str, end: str, provider: Provider | None = None
+) -> dict:
+    provider = provider or get_provider("busan")
     rows = payload.get("list")
     if not isinstance(rows, list) or len(rows) != 1:
         raise GasError("heat_schema_changed")
@@ -226,7 +272,7 @@ def caloric_from_json(payload: dict, start: str, end: str) -> dict:
     try:
         first, last = portal_date(row["O_FDATE"]), portal_date(row["O_TDATE"])
         factor = decimal(row["E_CALOR"])
-        if not start <= first <= last <= end or factor == 0 or row.get("I_CALOR") != "C000":
+        if not start <= first <= last <= end or factor == 0 or row.get("I_CALOR") != provider.code:
             raise GasError("heat_coverage_invalid")
         return {
             "start": first,
@@ -241,9 +287,20 @@ def caloric_from_json(payload: dict, start: str, end: str) -> dict:
 class PortalClient:
     """One isolated cookie jar per account, bounded reads, no browser dependency."""
 
-    def __init__(self, session: aiohttp.ClientSession, username: str, password: str):
+    def __init__(
+        self,
+        session: aiohttp.ClientSession,
+        username: str,
+        password: str,
+        provider: Provider | None = None,
+        tariff_region: str = "default",
+        tariff_profile: str | None = None,
+    ):
         self.session = session
         self.username, self.password = username, password
+        self.provider = provider or get_provider("busan")
+        self.tariff_region = tariff_region
+        self.tariff_profile = tariff_profile or default_profile(self.provider)
         self.authenticated = False
         self.lock = asyncio.Lock()
         self.history_errors: dict[str, list[str]] = {}
@@ -256,7 +313,7 @@ class PortalClient:
                 data=data,
                 allow_redirects=False,
                 timeout=aiohttp.ClientTimeout(total=25),
-                headers={"Referer": BASE_URL + "/busan/main/index.do"},
+                headers={"Referer": BASE_URL + f"/{self.provider.path}/main/index.do"},
             ) as response:
                 if response.status in (301, 302, 303, 307, 308):
                     raise AuthenticationError("reauth_required")
@@ -270,10 +327,14 @@ class PortalClient:
 
     async def login(self) -> None:
         self.authenticated = False
-        await self._request("/busan/login/login.do")
+        await self._request(f"/{self.provider.path}/login/login.do")
         text = await self._request(
-            "/busan/login/loginProcess.do",
-            {"id": self.username, "pw": self.password, "returnURL": "/busan/read/selfRead.do"},
+            f"/{self.provider.path}/login/loginProcess.do",
+            {
+                "id": self.username,
+                "pw": self.password,
+                "returnURL": f"/{self.provider.path}/read/selfRead.do",
+            },
         )
         try:
             result = json.loads(text)
@@ -300,11 +361,14 @@ class PortalClient:
                 return text
 
     async def contracts(self) -> list[Contract]:
-        return contracts_from_html(await self.read("/busan/read/selfRead.do"))
+        return contracts_from_html(
+            await self.read(f"/{self.provider.path}/read/selfRead.do"), self.provider
+        )
 
     async def meter(self, contract: Contract) -> MeterWindow:
         text = await self.read(
-            "/busan/read/call_EBPP_018.do", {"CANO": contract.cano, "BPNO": contract.bpno}
+            f"/{self.provider.path}/read/call_EBPP_018.do",
+            {"CANO": contract.cano, "BPNO": contract.bpno},
         )
         try:
             return meter_from_json(json.loads(text))
@@ -313,11 +377,11 @@ class PortalClient:
 
     async def bill_page(self, contract: Contract, month: str = "") -> str:
         return await self.read(
-            "/busan/charge/askDetail.do",
+            f"/{self.provider.path}/charge/askDetail.do",
             {
                 "bpno": contract.bpno,
                 "cano": contract.cano,
-                "compcd": "C000",
+                "compcd": self.provider.code,
                 "GUBUN": "02",
                 "date": month,
             },
@@ -353,15 +417,26 @@ class PortalClient:
         return result
 
     async def tariff(self) -> Tariff:
-        return tariff_from_html(await self._request("/busan/rate/guide.do"))
+        data = None
+        if self.provider.id == "koone":
+            data = {"regionSeq": "275" if self.tariff_region == "gyeonggi" else "274", "seq": "0"}
+        return tariff_from_html(
+            await self._request(f"/{self.provider.path}/rate/guide.do", data),
+            self.provider,
+            self.tariff_profile,
+        )
 
     async def caloric(self, start: str, end: str) -> dict:
         text = await self._request(
-            "/busan/caloric/call_EBPP_044.do",
-            {"I_FDATE": start.replace("-", ""), "I_TDATE": end.replace("-", ""), "I_CALOR": "C000"},
+            f"/{self.provider.path}/caloric/call_EBPP_044.do",
+            {
+                "I_FDATE": start.replace("-", ""),
+                "I_TDATE": end.replace("-", ""),
+                "I_CALOR": self.provider.code,
+            },
         )
         try:
-            return caloric_from_json(json.loads(text), start, end)
+            return caloric_from_json(json.loads(text), start, end, self.provider)
         except ValueError:
             raise GasError("heat_schema_changed") from None
 
@@ -371,15 +446,22 @@ class PortalClient:
         # Emergency switch, independent of the per-request validation below.
         if not SUBMISSION_ENABLED:
             raise GasError("submission_disabled")
-        from .submission_transport import FORM_PATH, SubmissionNotSent, build_payload, send_once
+        from .submission_transport import SubmissionNotSent, build_payload, send_once
 
         try:
-            html = await self.read(FORM_PATH)
-            payload = build_payload(contract, window, value, html, now)
+            form_path = f"/{self.provider.path}/read/selfRead.do"
+            submit_path = f"/{self.provider.path}/read/insertSelfRead.do"
+            html = await self.read(form_path)
+            payload = build_payload(contract, window, value, html, now, self.provider)
         except GasError as error:
             raise SubmissionNotSent(str(error)) from None
         async with self.lock:
             if not self.authenticated:
                 raise SubmissionNotSent("reauth_required")
             # Never use read(): it retries authenticated reads after login.
-            await send_once(self.session, BASE_URL, payload)
+            if self.provider.id == "busan":
+                await send_once(self.session, BASE_URL, payload)
+            else:
+                await send_once(
+                    self.session, BASE_URL, payload, form_path=form_path, submit_path=submit_path
+                )

@@ -1,4 +1,4 @@
-"""부산도시가스 Home Assistant integration."""
+"""SK E&S regional city gas Home Assistant integration."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from homeassistant.helpers import config_validation as cv
 from .const import DOMAIN, PANEL_PATH, VERSION
 from .coordinator import AccountCoordinator
 from .model import GasError
+from .provider import default_region, get_provider
 from .websocket import async_register as register_websocket
 
 PLATFORMS = ["sensor", "binary_sensor"]
@@ -46,7 +47,7 @@ async def async_setup(hass, _config):
             await item.authorize(call.data["contract_key"], call.context.user_id)
             await item.send_message(
                 call.data["contract_key"],
-                "부산도시가스 알림 테스트",
+                f"{item.provider.name} 알림 테스트",
                 "알림 발송 요청이 정상적으로 처리되었습니다.",
                 kind="test",
             )
@@ -156,7 +157,7 @@ async def async_setup_entry(hass, entry):
             hass,
             frontend_url_path=PANEL_PATH,
             webcomponent_name="busan-city-gas-panel",
-            sidebar_title="부산도시가스",
+            sidebar_title="SK E&S 도시가스",
             sidebar_icon="mdi:meter-gas",
             module_url=f"/{DOMAIN}_static/panel.js?v={VERSION}",
             require_admin=False,
@@ -166,6 +167,28 @@ async def async_setup_entry(hass, entry):
     coordinator.initial_refresh_task = hass.async_create_background_task(
         coordinator.async_refresh(), f"{DOMAIN} initial official reads"
     )
+    return True
+
+
+async def async_migrate_entry(hass, entry):
+    """Add provider metadata without changing legacy Busan identities or state keys."""
+    if entry.version > 2:
+        return False
+    if entry.version < 2:
+        provider = get_provider(entry.data.get("provider_id", "busan"))
+        options = {"contracts": {}}
+        for key, value in entry.options.get("contracts", {}).items():
+            options["contracts"][key] = {
+                **value,
+                "tariff_region": value.get("tariff_region", default_region(provider)),
+                "tariff_profile": value.get("tariff_profile", "residential"),
+            }
+        hass.config_entries.async_update_entry(
+            entry,
+            data={**entry.data, "provider_id": provider.id},
+            options=options,
+            version=2,
+        )
     return True
 
 

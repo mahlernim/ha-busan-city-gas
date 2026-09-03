@@ -15,6 +15,7 @@ from homeassistant.util import slugify
 from .const import DEFAULT_OPTIONS, DOMAIN
 from .model import Estimate, GasError, decimal
 from .portal import AuthenticationError, ConnectionError, Contract, PortalClient, opaque
+from .provider import PROVIDERS, default_profile, default_region, get_provider
 
 
 def phones(hass) -> dict[str, dict]:
@@ -132,9 +133,10 @@ def policy_schema(defaults: dict) -> vol.Schema:
 
 
 class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    VERSION = 1
+    VERSION = 2
 
     def __init__(self):
+        self.provider = get_provider("busan")
         self.credentials = {}
         self.contracts: list[Contract] = []
         self.selected: list[Contract] = []
@@ -149,6 +151,26 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return GasOptionsFlow()
 
     async def async_step_user(self, user_input=None):
+        if user_input is not None:
+            self.provider = get_provider(user_input["provider_id"])
+            return await self.async_step_credentials()
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("provider_id", default="busan"): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                {"value": key, "label": item.name}
+                                for key, item in PROVIDERS.items()
+                            ]
+                        )
+                    )
+                }
+            ),
+        )
+
+    async def async_step_credentials(self, user_input=None):
         errors = {"base": self.login_error} if self.login_error else {}
         if user_input is not None:
             if self.login_task and not self.login_task.done():
@@ -158,7 +180,7 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self.login_task = None
             return await self.async_step_login()
         return self.async_show_form(
-            step_id="user",
+            step_id="credentials",
             data_schema=vol.Schema(
                 {
                     vol.Required("username"): str,
@@ -174,7 +196,10 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             async with aiohttp.ClientSession() as session:
                 client = PortalClient(
-                    session, self.credentials["username"], self.credentials["password"]
+                    session,
+                    self.credentials["username"],
+                    self.credentials["password"],
+                    self.provider,
                 )
                 self.contracts = await client.contracts()
         except AuthenticationError:
@@ -199,14 +224,14 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_login_result(self, user_input=None):
         if self.login_error:
             self.credentials = {}
-            return await self.async_step_user()
+            return await self.async_step_credentials()
         if not self.contracts:
             return self.async_abort(reason="no_contracts")
-        await self.async_set_unique_id(opaque("C000:" + self.contracts[0].bpno))
+        await self.async_set_unique_id(opaque(f"{self.provider.code}:" + self.contracts[0].bpno))
         self._abort_if_unique_id_configured()
         if len(self.contracts) == 1:
             self.selected = self.contracts
-            return await self.async_step_source()
+            return await self.async_step_tariff()
         return await self.async_step_contracts()
 
     @callback
@@ -219,7 +244,7 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input and user_input.get("contracts"):
             self.selected = [item for item in self.contracts if item.key in user_input["contracts"]]
             if self.selected:
-                return await self.async_step_source()
+                return await self.async_step_tariff()
         return self.async_show_form(
             step_id="contracts",
             data_schema=vol.Schema(
@@ -237,6 +262,44 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @property
     def current(self):
         return self.settings.setdefault(self.selected[self.position].key, dict(DEFAULT_OPTIONS))
+
+    async def async_step_tariff(self, user_input=None):
+        regions = self.provider.regions
+        profiles = self.provider.profiles
+        if user_input is not None:
+            region = user_input["tariff_region"]
+            profile = user_input.get("tariff_profile", default_profile(self.provider))
+            if region not in {value for value, _label in regions} or profile not in {
+                value for value, _label, _match in profiles
+            }:
+                return self.async_show_form(step_id="tariff", errors={"base": "invalid_tariff"})
+            self.current.update(tariff_region=region, tariff_profile=profile)
+            return await self.async_step_source()
+        return self.async_show_form(
+            step_id="tariff",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        "tariff_region", default=default_region(self.provider)
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[{"value": value, "label": label} for value, label in regions]
+                        )
+                    ),
+                    vol.Required(
+                        "tariff_profile", default=default_profile(self.provider)
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                {"value": value, "label": label}
+                                for value, label, _match in profiles
+                            ]
+                        )
+                    ),
+                }
+            ),
+            description_placeholders={"contract": self.selected[self.position].label},
+        )
 
     async def async_step_source(self, user_input=None):
         errors = {}
@@ -327,15 +390,19 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.current["allow_historical_submission"] = False
             self.position += 1
             if self.position < len(self.selected):
-                return await self.async_step_source()
+                return await self.async_step_tariff()
             return await self.async_step_summary()
         return self.async_show_form(step_id="policy", data_schema=policy_schema(self.current))
 
     async def async_step_summary(self, user_input=None):
         if user_input is not None:
             return self.async_create_entry(
-                title="부산도시가스",
-                data={**self.credentials, "contracts": [asdict(c) for c in self.selected]},
+                title=self.provider.name,
+                data={
+                    **self.credentials,
+                    "provider_id": self.provider.id,
+                    "contracts": [asdict(c) for c in self.selected],
+                },
                 options={"contracts": self.settings},
             )
         summaries = []
@@ -366,12 +433,16 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
         if user_input:
             entry = self._get_reauth_entry()
+            provider = get_provider(entry.data.get("provider_id", "busan"))
             try:
                 async with aiohttp.ClientSession() as session:
                     contracts = await PortalClient(
-                        session, entry.data["username"], user_input["password"]
+                        session, entry.data["username"], user_input["password"], provider
                     ).contracts()
-                if not contracts or opaque("C000:" + contracts[0].bpno) != entry.unique_id:
+                if (
+                    not contracts
+                    or opaque(f"{provider.code}:" + contracts[0].bpno) != entry.unique_id
+                ):
                     return self.async_abort(reason="wrong_account")
                 return self.async_update_reload_and_abort(
                     entry, data_updates={"password": user_input["password"]}
@@ -427,7 +498,7 @@ class GasOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_menu(self, user_input=None):
         return self.async_show_menu(
-            step_id="menu", menu_options=["source", "notifications", "policy"]
+            step_id="menu", menu_options=["tariff", "source", "notifications", "policy"]
         )
 
     def finish(self, values):
@@ -449,6 +520,44 @@ class GasOptionsFlow(config_entries.OptionsFlow):
                 errors["base"] = "invalid_source"
         return self.async_show_form(
             step_id="source", data_schema=source_schema(self.hass, self.current), errors=errors
+        )
+
+    async def async_step_tariff(self, user_input=None):
+        provider = get_provider(self.config_entry.data.get("provider_id", "busan"))
+        regions = provider.regions
+        profiles = provider.profiles
+        if user_input is not None:
+            return self.finish(
+                {
+                    "tariff_region": user_input["tariff_region"],
+                    "tariff_profile": user_input.get("tariff_profile", default_profile(provider)),
+                }
+            )
+        return self.async_show_form(
+            step_id="tariff",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        "tariff_region",
+                        default=self.current.get("tariff_region", default_region(provider)),
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[{"value": value, "label": label} for value, label in regions]
+                        )
+                    ),
+                    vol.Required(
+                        "tariff_profile",
+                        default=self.current.get("tariff_profile", default_profile(provider)),
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                {"value": value, "label": label}
+                                for value, label, _match in profiles
+                            ]
+                        )
+                    ),
+                }
+            ),
         )
 
     async def async_step_notifications(self, user_input=None):

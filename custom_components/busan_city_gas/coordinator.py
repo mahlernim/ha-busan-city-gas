@@ -28,6 +28,7 @@ from .const import (
 )
 from .model import Bill, Estimate, GasError, MeterWindow, Tariff, decimal, forecast
 from .portal import AuthenticationError, Contract, PortalClient
+from .provider import default_region, get_provider
 from .sensorless import SensorlessModel
 from .submission import SubmissionManager
 
@@ -40,9 +41,12 @@ class AccountCoordinator(DataUpdateCoordinator):
             hass, LOGGER, name=DOMAIN, config_entry=entry, update_interval=timedelta(days=1)
         )
         self.entry = entry
+        self.provider = get_provider(entry.data.get("provider_id", "busan"))
         self.store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}", private=True)
         self.session = aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar())
-        self.client = PortalClient(self.session, entry.data["username"], entry.data["password"])
+        self.client = PortalClient(
+            self.session, entry.data["username"], entry.data["password"], self.provider
+        )
         self.contracts = {c["key"]: Contract(**c) for c in entry.data["contracts"]}
         self.saved: dict = {}
         self.estimates: dict[str, Estimate] = {}
@@ -220,16 +224,24 @@ class AccountCoordinator(DataUpdateCoordinator):
             self.changed()
 
     async def _fetch_tariff(self):
-        try:
-            # Public requests must not race account login cookie updates.
-            async with aiohttp.ClientSession(cookie_jar=aiohttp.DummyCookieJar()) as session:
-                tariff = asdict(await PortalClient(session, "", "").tariff())
-            for item in self.saved["contracts"].values():
-                item["tariff"] = tariff
-                item.pop("tariff_error", None)
-        except GasError as error:
-            for item in self.saved["contracts"].values():
-                item["tariff_error"] = str(error)
+        # Public requests must not race account login cookie updates.
+        async with aiohttp.ClientSession(cookie_jar=aiohttp.DummyCookieJar()) as session:
+            for key, item in self.saved["contracts"].items():
+                region = self.options(key).get("tariff_region", default_region(self.provider))
+                try:
+                    tariff = await PortalClient(
+                        session,
+                        "",
+                        "",
+                        self.provider,
+                        tariff_region=region,
+                        tariff_profile=self.options(key).get("tariff_profile"),
+                    ).tariff()
+                    item["tariff"] = asdict(tariff)
+                    item.pop("tariff_error", None)
+                except GasError as error:
+                    item.pop("tariff", None)
+                    item["tariff_error"] = str(error)
 
     async def _fetch_data(self):
         errors = []
@@ -301,7 +313,7 @@ class AccountCoordinator(DataUpdateCoordinator):
                 window_status = "ended"
             else:
                 window_status = "open" if window.eligible else "ineligible"
-        tariff = Tariff(**item["tariff"]) if item.get("tariff") else None
+        tariff = Tariff.load(item["tariff"]) if item.get("tariff") else None
         values = forecast(
             self.estimates[key],
             bills,
@@ -323,6 +335,10 @@ class AccountCoordinator(DataUpdateCoordinator):
             None,
         )
         return {
+            "provider_id": self.provider.id,
+            "provider_name": self.provider.name,
+            "provider_url": self.provider.billing_url,
+            "tariff_profile": self.options(key).get("tariff_profile", "residential"),
             "entry_id": self.entry.entry_id,
             "key": key,
             "label": self.contracts[key].label,
@@ -744,7 +760,7 @@ class AccountCoordinator(DataUpdateCoordinator):
             "처리 결과를 확인하지 못했습니다. 홈페이지에서 접수 상태를 먼저 확인하고 확인 없이 다시 전송하지 마세요.",
         )
         persistent_notification.async_create(
-            self.hass, message, "부산도시가스 확인 필요", self.tag(key, "error")
+            self.hass, message, f"{self.provider.name} 확인 필요", self.tag(key, "error")
         )
         await self.send_message(key, "가스 검침 확인 필요", message, kind="error")
 

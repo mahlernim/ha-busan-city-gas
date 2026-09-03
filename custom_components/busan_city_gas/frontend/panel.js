@@ -3,7 +3,7 @@ const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;",
 const number = (value, digits = 1) => value === null || value === undefined ? "—" : Number(value).toLocaleString("ko-KR", {maximumFractionDigits: digits});
 const errors = {
   source_waiting: "센서 연결 대기 중입니다. 유효한 센서값을 확인할 때까지 제출하지 않습니다.",
-  submission_disabled: "현재 제출 기능이 중지되어 있습니다. 부산도시가스 홈페이지에서 직접 제출해 주세요.",
+  submission_disabled: "현재 제출 기능이 중지되어 있습니다. 도시가스 공급사 홈페이지에서 직접 제출해 주세요.",
   submission_uncertain: "접수 여부가 불명확합니다. 홈페이지에서 확인해 주세요. 재전송은 중지했습니다.",
   submission_rejected: "서버가 저장 실패로 응답했고 재조회에서도 접수값을 확인하지 못했습니다. 구체적인 원인은 제공되지 않았습니다. 오늘은 다시 보내지 않습니다. 홈페이지에서 확인해 주세요.",
   submission_attempted_today: "오늘 이미 제출을 시도했습니다. 중복 전송을 막기 위해 오늘은 다시 보내지 않습니다. 홈페이지에서 접수 내역을 확인해 주세요.",
@@ -21,11 +21,11 @@ const errors = {
   window_closed: "지금은 자가검침 입력 기간이 아닙니다.",
   not_authorized: "이 계약을 처리할 권한이 없습니다.",
   historical_submission_disabled: "과거 사용량 기반 제출이 허용되지 않았습니다.",
-  cannot_connect: "부산도시가스 서버에 연결하지 못했습니다. 통신을 확인한 뒤 공식 정보를 새로고침하세요. 제출을 요청한 뒤 응답이 끊겼다면 접수 내역을 먼저 확인하고 다시 누르지 마세요.",
+  cannot_connect: "도시가스 공급사 서버에 연결하지 못했습니다. 통신을 확인한 뒤 공식 정보를 새로고침하세요. 제출을 요청한 뒤 응답이 끊겼다면 접수 내역을 먼저 확인하고 다시 누르지 마세요.",
   reauth_required: "로그인이 만료되었습니다. 통합 설정에서 다시 로그인한 뒤 접수 내역을 확인하세요.",
-  invalid_auth: "부산도시가스 아이디 또는 비밀번호를 확인하고 다시 로그인하세요.",
+  invalid_auth: "도시가스 공급사 아이디 또는 비밀번호를 확인하고 다시 로그인하세요.",
   below_official_reading: "입력값이 지난 공식 검침값보다 작아 전송하지 않았습니다. 계량기 숫자와 교체 여부를 확인해 주세요.",
-  meter_schema_changed: "부산도시가스의 검침 응답을 해석하지 못했습니다. 기간·접수 상태를 확인할 수 없어 제출하지 않습니다. 홈페이지에서 확인하거나 통합 업데이트를 확인하세요.",
+  meter_schema_changed: "도시가스 공급사의 검침 응답을 해석하지 못했습니다. 기간·접수 상태를 확인할 수 없어 제출하지 않습니다. 홈페이지에서 확인하거나 통합 업데이트를 확인하세요.",
   meter_selection_required: "계약의 계량기를 하나로 확인할 수 없습니다. 홈페이지에서 계량기 정보를 확인해 주세요. 제출하지 않았습니다.",
   submission_transport_not_validated: "실제 제출 연동이 아직 검증되지 않아 전송하지 않았습니다. 홈페이지에서 직접 제출해 주세요.",
   insufficient_data: "제출할 검침값 또는 접수 기간이 아직 확인되지 않았습니다. 공식 정보를 새로고침하고 필요하면 실제 계량기 숫자로 보정하세요.",
@@ -39,11 +39,11 @@ const windowMessage = r => {
   const period = `${shortDate(r.window_start)}부터 ${shortDate(r.window_end)}까지`;
   if(r.submission_status === "confirmed") return `이번 주기는 ${number(r.accepted)} m³로 접수가 확인되었습니다. 다시 제출할 필요가 없습니다.`;
   if(r.submission_error && errors[r.submission_error]) return errors[r.submission_error];
-  if(["pending","uncertain"].includes(r.submission_status)) return "이전 제출의 접수 여부를 확인해야 합니다. 성공 또는 실패가 확정되지 않았으므로 다시 전송하지 않습니다. 부산도시가스 홈페이지에서 접수 내역을 확인해 주세요.";
+  if(["pending","uncertain"].includes(r.submission_status)) return "이전 제출의 접수 여부를 확인해야 합니다. 성공 또는 실패가 확정되지 않았으므로 다시 전송하지 않습니다. 도시가스 공급사 홈페이지에서 접수 내역을 확인해 주세요.";
   const status = r.window_status || (r.window_open ? "open" : (r.today && r.window_start && r.today < r.window_start ? "before" : "unknown"));
   if(status === "before") return `오늘은 자가검침 제출 기간이 아닙니다. ${period} 제출 가능합니다.`;
   if(status === "ended") return `이번 자가검침 제출 기간(${period})이 끝났습니다. 다음 접수 기간은 공식 조회로 다시 확인해야 합니다.`;
-  if(status === "ineligible") return "현재 계약은 온라인 자가검침이 가능한 상태가 아닙니다. 부산도시가스 홈페이지에서 대상 여부를 확인해 주세요.";
+  if(status === "ineligible") return "현재 계약은 온라인 자가검침이 가능한 상태가 아닙니다. 도시가스 공급사 홈페이지에서 대상 여부를 확인해 주세요.";
   if(status === "open") return `오늘은 자가검침 접수 기간입니다. ${period} 제출 가능합니다.`;
   return "자가검침 제출 기간을 아직 확인하지 못했습니다. 공식 정보를 새로고침해 주세요. 확인 전에는 제출할 수 없습니다.";
 };
@@ -112,7 +112,7 @@ class BusanCityGasPanel extends HTMLElement {
     const row = this.current;
     const proposal = await this.call("proposal", {}, row);
     const origin = proposal.origin === "historical" ? " (과거 사용량·실측 기록 기반 추정)" : "";
-    if(!window.confirm(`${row.label || "선택한 계약"}\n${proposal.value} m³${origin}을 부산도시가스에 제출할까요?\n소수점은 버리고 정수만 전송합니다. 접수된 값의 변경은 홈페이지에서 확인해 주세요.`)) {
+    if(!window.confirm(`${row.label || "선택한 계약"}\n${proposal.value} m³${origin}을 ${row.provider_name || "도시가스 공급사"}에 제출할까요?\n소수점은 버리고 정수만 전송합니다. 접수된 값의 변경은 홈페이지에서 확인해 주세요.`)) {
       this.message = "제출을 취소했습니다. 검침값은 전송하지 않았습니다. 보정한 값은 유지됩니다.";
       return;
     }
@@ -178,11 +178,11 @@ class BusanCityGasPanel extends HTMLElement {
       button{background:var(--primary-color,#126b54);color:var(--text-primary-color,white);border:0;border-radius:9px;padding:13px 16px;font:inherit;cursor:pointer;min-height:46px}button:disabled{opacity:.45;cursor:default}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--accent-color,#e7ac42);outline-offset:3px}
       input,select{box-sizing:border-box;font:inherit;border:1px solid #98aaa3;border-radius:8px;padding:12px;max-width:100%;background:var(--card-background-color,#fff);color:inherit}input{width:100%;margin-top:8px}label{display:block}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:10px 4px;border-bottom:1px solid var(--divider-color,#e4eae6)}
       .status{min-height:24px;white-space:pre-wrap}a{color:var(--primary-color,#126b54)}details{margin:15px 0}summary{cursor:pointer}.scroll{overflow:auto}@media(max-width:500px){main{padding:18px 12px 48px}section{padding:18px}.grid{gap:10px}.metric{font-size:21px}header{align-items:start;flex-direction:column}.big{font-size:40px}.actions button{flex:1}}
-    </style><main><header><h1>부산도시가스</h1>${this.rows.length > 1 ? `<select id="contract" aria-label="계약 선택">${this.rows.map(row => `<option value="${esc(row.key)}" ${r?.key === row.key ? "selected" : ""}>${esc(row.label)}</option>`).join("")}</select>` : ""}</header>
+    </style><main><header><h1>SK E&S 도시가스</h1>${this.rows.length > 1 ? `<select id="contract" aria-label="계약 선택">${this.rows.map(row => `<option value="${esc(row.key)}" ${r?.key === row.key ? "selected" : ""}>${esc(row.label)}</option>`).join("")}</select>` : ""}</header>
     <div class="status" role="status" aria-live="polite">${esc(this.message)}</div>
     ${r ? `
       ${r.refreshing ? `<section role="status" aria-live="polite"><strong>공식 정보 조회 중</strong><p>${esc(r.refresh_progress)}</p><small>이미 불러온 검침값과 요금은 사용할 수 있습니다. 조회 완료 시 자동으로 갱신됩니다.</small></section>` : ""}
-      <section><small>${esc(r.label)} · ${esc(modelLabel(r))}</small>
+      <section><small>${esc(r.provider_name)} · ${esc(r.label)} · ${esc(modelLabel(r))}</small>
       <div class="big">${fmt(r.reading)}</div><div class="muted">마지막 실측 ${fmt(r.actual)} · ${esc(r.actual_at || "아직 없음")}</div>
       ${modelMessage(r) ? `<p class="warning">${esc(modelMessage(r))}</p>` : ""}
       <div class="actions">${button("confirm","맞음",r.local_reading === null)}${button("plus","+0.1",r.local_reading === null)}${button("minus","−0.1",r.local_reading === null)}</div>
