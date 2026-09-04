@@ -96,4 +96,3 @@ HACS가 설정되어 있다면 위 버튼을 누르세요. 처음에는 사용�
 - [개인정보·권한 안내](docs/privacy.md) · [업데이트 내용](CHANGELOG.md) · [라이선스](LICENSE)
 
 코드로 기여하고 싶다면 [개발 참여 안내](CONTRIBUTING.md)를 참고해 주세요.
-
