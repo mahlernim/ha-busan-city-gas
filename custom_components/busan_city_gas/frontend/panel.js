@@ -2,6 +2,10 @@
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
 const number = (value, digits = 1) => value === null || value === undefined ? "—" : Number(value).toLocaleString("ko-KR", {maximumFractionDigits: digits});
 const errors = {
+  service_registration_required: "가스앱 자가검침 서비스 가입이 필요합니다. 아래 가입 버튼에서 동의 내용을 확인하세요.",
+  channel_change_required: "자가검침 접수 채널을 가스앱으로 변경해야 합니다. 아래 버튼에서 변경 내용을 확인하세요.",
+  consent_required: "자가검침 서비스 가입 또는 채널 변경에 대한 동의가 필요합니다.",
+  unsupported_operation: "현재 공급사 연결에서 제출 기능을 사용할 수 없습니다.",
   source_waiting: "센서 연결 대기 중입니다. 유효한 센서값을 확인할 때까지 제출하지 않습니다.",
   submission_disabled: "현재 제출 기능이 중지되어 있습니다. 도시가스 공급사 홈페이지에서 직접 제출해 주세요.",
   submission_uncertain: "접수 여부가 불명확합니다. 홈페이지에서 확인해 주세요. 재전송은 중지했습니다.",
@@ -23,7 +27,7 @@ const errors = {
   historical_submission_disabled: "과거 사용량 기반 제출이 허용되지 않았습니다.",
   cannot_connect: "도시가스 공급사 서버에 연결하지 못했습니다. 통신을 확인한 뒤 공식 정보를 새로고침하세요. 제출을 요청한 뒤 응답이 끊겼다면 접수 내역을 먼저 확인하고 다시 누르지 마세요.",
   reauth_required: "로그인이 만료되었습니다. 통합 설정에서 다시 로그인한 뒤 접수 내역을 확인하세요.",
-  invalid_auth: "도시가스 공급사 아이디 또는 비밀번호를 확인하고 다시 로그인하세요.",
+  invalid_auth: "공급사 로그인 정보 또는 세션 토큰을 확인하고 다시 인증하세요.",
   below_official_reading: "입력값이 지난 공식 검침값보다 작아 전송하지 않았습니다. 계량기 숫자와 교체 여부를 확인해 주세요.",
   meter_schema_changed: "도시가스 공급사의 검침 응답을 해석하지 못했습니다. 기간·접수 상태를 확인할 수 없어 제출하지 않습니다. 홈페이지에서 확인하거나 통합 업데이트를 확인하세요.",
   meter_selection_required: "계약의 계량기를 하나로 확인할 수 없습니다. 홈페이지에서 계량기 정보를 확인해 주세요. 제출하지 않았습니다.",
@@ -44,6 +48,7 @@ const windowMessage = r => {
   if(status === "before") return `오늘은 자가검침 제출 기간이 아닙니다. ${period} 제출 가능합니다.`;
   if(status === "ended") return `이번 자가검침 제출 기간(${period})이 끝났습니다. 다음 접수 기간은 공식 조회로 다시 확인해야 합니다.`;
   if(status === "ineligible") return "현재 계약은 온라인 자가검침이 가능한 상태가 아닙니다. 도시가스 공급사 홈페이지에서 대상 여부를 확인해 주세요.";
+  if(status === "open" && r.supports_deadline === false) return "공급사가 현재 자가검침을 허용합니다. 마감일은 제공되지 않으며 전송 직전에 가능 여부를 다시 확인합니다.";
   if(status === "open") return `오늘은 자가검침 접수 기간입니다. ${period} 제출 가능합니다.`;
   return "자가검침 제출 기간을 아직 확인하지 못했습니다. 공식 정보를 새로고침해 주세요. 확인 전에는 제출할 수 없습니다.";
 };
@@ -129,6 +134,12 @@ class BusanCityGasPanel extends HTMLElement {
       if(action === "refresh") {
         await this._hass.callWS({type:"busan_city_gas/refresh", entry_id:row.entry_id});
         this.message = "요금·검침 정보 업데이트를 요청했습니다. 완료되면 화면에 반영됩니다.";
+      } else if(action === "register" || action === "channel") {
+        const effect = action === "register" ? "가스앱 자가검침 서비스에 가입합니다. 공급사 계정의 서비스 이용 상태가 변경됩니다." : "자가검침 접수 채널을 가스앱으로 변경합니다. 기존 접수 채널 이용에 영향을 줄 수 있습니다.";
+        if(window.confirm(`${row.label || "선택한 계약"}\n${effect}\n동의하고 진행할까요? 검침값 제출은 별도로 확인합니다.`)) {
+          await this.call("prepare_service", {action, consent:true}, row);
+          this.message = "서비스 변경 요청을 처리했습니다. 최신 상태를 확인하세요. 검침값은 전송하지 않았습니다.";
+        } else {this.message = "서비스 변경을 취소했습니다.";}
       } else if(action === "check") {
         this.message = receiptMessage(await this.call("check_submission"));
       } else if(action === "test") {
@@ -178,7 +189,7 @@ class BusanCityGasPanel extends HTMLElement {
       button{background:var(--primary-color,#126b54);color:var(--text-primary-color,white);border:0;border-radius:9px;padding:13px 16px;font:inherit;cursor:pointer;min-height:46px}button:disabled{opacity:.45;cursor:default}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--accent-color,#e7ac42);outline-offset:3px}
       input,select{box-sizing:border-box;font:inherit;border:1px solid #98aaa3;border-radius:8px;padding:12px;max-width:100%;background:var(--card-background-color,#fff);color:inherit}input{width:100%;margin-top:8px}label{display:block}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:10px 4px;border-bottom:1px solid var(--divider-color,#e4eae6)}
       .status{min-height:24px;white-space:pre-wrap}a{color:var(--primary-color,#126b54)}details{margin:15px 0}summary{cursor:pointer}.scroll{overflow:auto}@media(max-width:500px){main{padding:18px 12px 48px}section{padding:18px}.grid{gap:10px}.metric{font-size:21px}header{align-items:start;flex-direction:column}.big{font-size:40px}.actions button{flex:1}}
-    </style><main><header><h1>SK E&S 도시가스</h1>${this.rows.length > 1 ? `<select id="contract" aria-label="계약 선택">${this.rows.map(row => `<option value="${esc(row.key)}" ${r?.key === row.key ? "selected" : ""}>${esc(row.label)}</option>`).join("")}</select>` : ""}</header>
+    </style><main><header><h1>똑똑 자가검침 AI</h1>${this.rows.length > 1 ? `<select id="contract" aria-label="계약 선택">${this.rows.map(row => `<option value="${esc(row.key)}" ${r?.key === row.key ? "selected" : ""}>${esc(row.label)}</option>`).join("")}</select>` : ""}</header>
     <div class="status" role="status" aria-live="polite">${esc(this.message)}</div>
     ${r ? `
       ${r.refreshing ? `<section role="status" aria-live="polite"><strong>공식 정보 조회 중</strong><p>${esc(r.refresh_progress)}</p><small>이미 불러온 검침값과 요금은 사용할 수 있습니다. 조회 완료 시 자동으로 갱신됩니다.</small></section>` : ""}
@@ -187,7 +198,7 @@ class BusanCityGasPanel extends HTMLElement {
       ${modelMessage(r) ? `<p class="warning">${esc(modelMessage(r))}</p>` : ""}
       <div class="actions">${button("confirm","맞음",r.local_reading === null)}${button("plus","+0.1",r.local_reading === null)}${button("minus","−0.1",r.local_reading === null)}</div>
       <label for="reading">현재 계량기에 보이는 숫자 (m³)</label><input id="reading" inputmode="decimal" type="number" step="0.1" min="0" max="99999" value="${esc(this.draft)}" placeholder="예: 35.0">
-      <div class="actions">${button("apply","보정만 적용")}${button("apply-submit","보정하고 제출",r.submission_locked || !r.window_open || r.submission_blocked)}</div>
+      <div class="actions">${button("apply","보정만 적용")}${button("apply-submit","보정하고 제출",r.supports_submission === false || r.service_registration_required || r.channel_change_required || r.submission_locked || !r.window_open || r.submission_blocked)}</div>
       <small>숫자만 입력하면 적용되지 않습니다. ±0.1은 추정값 조정이며 실측 확인과 구분됩니다.</small>
       <details><summary>계량기를 교체했나요?</summary><p>위에 새 계량기 숫자를 입력한 뒤 기준을 재설정하세요.</p>${button("replace","새 계량기 기준 설정")}</details></section>
       <section><h2>가스요금</h2><div class="grid"><div><small>최근 확정 고지금액</small><div class="metric">${fmt(r.billed_amount,"원")}</div></div><div><small>이번 청구기간 예상액</small><div class="metric">${fmt(r.projected_amount,"원")}</div></div><div><small>현재까지 예상액</small><div class="metric">${fmt(r.accrued_amount,"원")}</div></div><div><small>${r.source_configured ? "최근 14일 사용일 평균" : "추정 일사용량"}</small><div class="metric">${number(r.source_configured ? r.average : r.estimated_daily_usage,2)} m³/일</div></div></div>
@@ -195,18 +206,19 @@ class BusanCityGasPanel extends HTMLElement {
       ${r.due_date ? `<p>최근 고지서 납기일 ${esc(r.due_date)} · 고지 사용량 ${fmt(r.billed_usage)}</p>` : ""}
       <p class="muted">${r.source_configured ? `최근 14일 중 ${r.average_days}일 기준 · 사용량 0인 날과 불완전한 날 제외` : `실측 학습 기간 ${number(r.learning_days || 0)}일 · 최근 실측 비중 ${number(Number(r.recent_weight || 0)*100,0)}% · 모델 기반 추정`}</p><small>예상액은 확정 청구액이 아닙니다. 최신 확인 계수·요율을 사용하며 할인·정산은 다를 수 있습니다.</small>
       ${r.period_start ? `<p>예상 사용기간 ${esc(r.period_start)} ~ ${esc(r.period_end)} (종료 예정)</p>` : '<p class="muted">청구 시작 기준·예정 종료일을 확인하기 전에는 기간 사용량과 예상 요금이 준비 중으로 표시됩니다.</p>'}</section>
-      <section><h2>자가검침</h2><p>입력 기간 ${esc(r.window_start || "확인 중")} ~ ${esc(r.window_end || "확인 중")}</p>
+      <section><h2>자가검침</h2><p>${r.supports_deadline === false ? "현재 접수 가능 여부를 실시간 확인합니다. 마감일 정보는 제공되지 않습니다." : `입력 기간 ${esc(r.window_start || "확인 중")} ~ ${esc(r.window_end || "확인 중")}`}</p>
       <p role="status">${esc(windowMessage(r))}</p>
       <p>상태: ${esc(({not_submitted:"미제출",pending:"처리 중",uncertain:"접수 확인 필요",confirmed:"접수 확인됨",rejected:"서버 저장 실패 응답",not_sent:"전송 전 중단"})[r.submission_status] || r.submission_status)}${r.accepted != null ? ` · 조회된 접수값 ${fmt(r.accepted)}` : ""}</p>
       ${r.submission_proposed != null ? `<p>마지막 요청값 ${fmt(r.submission_proposed)} · ${esc(r.submission_attempted_at || "시각 미확인")}</p>` : ""}
       ${r.accepted_checked_at ? `<p class="muted">접수 상태 확인 시각 ${esc(r.accepted_checked_at)} · 이번 조회값 ${r.submission_observed != null ? fmt(r.submission_observed) : "미확인"}</p>` : ""}
       ${r.submission_status === "confirmed" && r.receipt_in_latest_read === false ? `<p class="warning">${esc(receiptMessage(r))}</p>` : ""}
+      ${r.provider_family === "gasapp" && (r.service_registration_required || r.channel_change_required) ? `<p>${esc(r.service_registration_required ? errors.service_registration_required : errors.channel_change_required)}</p><div class="actions">${r.service_registration_required ? button("register","자가검침 서비스 가입") : button("channel","가스앱으로 접수 채널 변경")}</div>` : ""}
       <div class="actions">${button("check",r.submission_checking ? "제출 내역 확인 중…" : "제출 내역 확인",r.submission_checking)}</div>
       <small>접수 내역만 조회합니다. 검침값 제출·재전송 및 고지서 재조회는 하지 않습니다.</small>
       ${r.submission_locked ? '<p class="warning">현재 제출 기능이 중지되어 있습니다. 필요한 자가검침은 홈페이지에서 직접 해주세요.</p>' : ""}
-      <p>마감일 자동 제출: ${r.automatic_submission ? "켜짐" : "꺼짐"}</p>
+      <p>마감일 자동 제출: ${r.supports_deadline === false ? "마감일 정보 미제공" : r.automatic_submission ? "켜짐" : "꺼짐"}</p>
       ${r.automatic_submission_needs_confirmation ? '<p class="warning">이전 버전의 자동 제출 설정은 실행하지 않습니다. 사용하려면 통합 설정의 제출 정책에서 다시 켜고 저장해 주세요.</p>' : ""}
-      <div class="actions">${button("submit","제출값 확인",r.submission_locked || !r.window_open || r.submission_blocked || ["confirmed","pending","uncertain"].includes(r.submission_status))}${button("test","알림 테스트")}${this._hass?.user?.is_admin ? button("refresh",r.refreshing ? "정보 업데이트 중…" : "요금·검침 정보 업데이트",r.refreshing) : ""}</div>
+      <div class="actions">${button("submit","제출값 확인",r.supports_submission === false || r.service_registration_required || r.channel_change_required || r.submission_locked || !r.window_open || r.submission_blocked || ["confirmed","pending","uncertain"].includes(r.submission_status))}${button("test","알림 테스트")}${this._hass?.user?.is_admin ? button("refresh",r.refreshing ? "정보 업데이트 중…" : "요금·검침 정보 업데이트",r.refreshing) : ""}</div>
       <p class="muted">정보 업데이트는 요금·접수 기간·검침 상태를 조회합니다. 보관된 과거 고지서는 재사용하며 검침값을 제출하지 않습니다.</p>
       <small>알림 발송 요청 ${r.notification.requested_count || 0}대 · 수신 확인 ${r.notification.received_count || 0}명</small>
       ${r.error ? `<p class="warning">공식 조회가 최신 상태가 아닙니다: ${esc(r.error)}</p>` : ""}<p class="muted">마지막 공식 조회 ${esc(r.last_refresh || "아직 없음")}</p>

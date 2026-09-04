@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import asdict
 
 import aiohttp
@@ -12,9 +13,17 @@ from homeassistant.helpers import selector
 from homeassistant.util import dt as dt_util
 from homeassistant.util import slugify
 
+from .clients import create_client
 from .const import DEFAULT_OPTIONS, DOMAIN
+from .gasapp import GasappClient
 from .model import Estimate, GasError, decimal
-from .portal import AuthenticationError, ConnectionError, Contract, PortalClient, opaque
+from .portal import (
+    AuthenticationError,
+    ConnectionError,
+    Contract,
+    PortalClient,  # noqa: F401 - compatibility for adapter injection
+    opaque,
+)
 from .provider import PROVIDERS, default_profile, default_region, get_provider
 
 
@@ -109,7 +118,18 @@ def notification_schema(hass, defaults: dict) -> vol.Schema:
     )
 
 
-def policy_schema(defaults: dict) -> vol.Schema:
+def policy_schema(defaults: dict, *, deadline: bool = True) -> vol.Schema:
+    if not deadline:
+        return vol.Schema(
+            {
+                vol.Optional(
+                    "allow_historical_submission",
+                    default=defaults.get("allow_historical_submission", False),
+                ): bool
+            }
+            if not defaults.get("source_entity")
+            else {}
+        )
     fields = {
         vol.Optional(
             "automatic_submission",
@@ -144,6 +164,10 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self.position = 0
         self.login_task = None
         self.login_error = None
+        self.gasapp_identity = {}
+        self.gasapp_terms = []
+        self.gasapp_challenge = {}
+        self.reauth_entry = None
 
     @staticmethod
     @callback
@@ -153,6 +177,10 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input=None):
         if user_input is not None:
             self.provider = get_provider(user_input["provider_id"])
+            if self.provider.family == "gasapp":
+                return await self.async_step_gasapp_identity()
+            if self.provider.family == "energytalk":
+                return await self.async_step_energytalk_credentials()
             return await self.async_step_credentials()
         return self.async_show_form(
             step_id="user",
@@ -168,6 +196,118 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     )
                 }
             ),
+        )
+
+    async def async_step_gasapp_identity(self, user_input=None):
+        errors = {"base": self.login_error} if self.login_error else {}
+        if user_input is not None:
+            try:
+                GasappClient.validate_identity(user_input)
+                self.gasapp_identity = dict(user_input)
+                self.credentials = {
+                    "gasapp_device_id": self.credentials.get("gasapp_device_id", str(uuid.uuid4()))
+                }
+                async with aiohttp.ClientSession() as session:
+                    self.gasapp_terms = await GasappClient(
+                        session, self.credentials, self.provider
+                    ).terms(user_input["carrier"])
+                self.login_error = None
+                return await self.async_step_gasapp_terms()
+            except GasError as error:
+                errors["base"] = (
+                    "invalid_identity" if str(error) == "invalid_identity" else "cannot_connect"
+                )
+        return self.async_show_form(
+            step_id="gasapp_identity",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("name"): str,
+                    vol.Required("phone"): str,
+                    vol.Required("birthday"): str,
+                    vol.Required("gender"): vol.In(["1", "2", "3", "4"]),
+                    vol.Required("carrier"): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                {"value": "1", "label": "SKT"},
+                                {"value": "2", "label": "KT"},
+                                {"value": "3", "label": "LG U+"},
+                            ]
+                        )
+                    ),
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_gasapp_terms(self, user_input=None):
+        errors = {}
+        if not self.gasapp_identity or not self.gasapp_terms:
+            return await self.async_step_gasapp_identity()
+        if user_input is not None:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    self.gasapp_challenge = await GasappClient(
+                        session, self.credentials, self.provider
+                    ).request_sms(
+                        self.gasapp_identity, self.gasapp_terms, user_input.get("consent") is True
+                    )
+                return await self.async_step_gasapp_sms()
+            except GasError as error:
+                errors["base"] = (
+                    "consent_required" if str(error) == "consent_required" else "cannot_connect"
+                )
+        return self.async_show_form(
+            step_id="gasapp_terms",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("consent", default=False): bool,
+                }
+            ),
+            description_placeholders={
+                "terms": "\n\n".join(t["category"] + "\n" + t["text"] for t in self.gasapp_terms)
+            },
+            errors=errors,
+        )
+
+    async def async_step_gasapp_sms(self, user_input=None):
+        errors = {}
+        if not self.gasapp_challenge:
+            return await self.async_step_gasapp_identity()
+        if user_input is not None:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    self.credentials = await GasappClient(
+                        session, self.credentials, self.provider
+                    ).confirm_sms(self.gasapp_identity, self.gasapp_challenge, user_input["otp"])
+                self.gasapp_identity, self.gasapp_terms, self.gasapp_challenge = {}, [], {}
+                self.login_task, self.login_error = None, None
+                return await self.async_step_login()
+            except GasError as error:
+                errors["base"] = "invalid_otp" if str(error) == "invalid_otp" else "cannot_connect"
+        return self.async_show_form(
+            step_id="gasapp_sms", data_schema=vol.Schema({vol.Required("otp"): str}), errors=errors
+        )
+
+    async def async_step_energytalk_credentials(self, user_input=None):
+        errors = {"base": self.login_error} if self.login_error else {}
+        if user_input is not None:
+            token = user_input.get("energytalk_token", "").strip()
+            if token and not any(char.isspace() for char in token):
+                self.credentials = {"energytalk_token": token}
+                self.login_error, self.login_task = None, None
+                return await self.async_step_login()
+            errors["base"] = "invalid_auth"
+        return self.async_show_form(
+            step_id="energytalk_credentials",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("energytalk_token"): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                    )
+                }
+            ),
+            description_placeholders={"provider": self.provider.name},
+            errors=errors,
         )
 
     async def async_step_credentials(self, user_input=None):
@@ -195,12 +335,7 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def _login(self):
         try:
             async with aiohttp.ClientSession() as session:
-                client = PortalClient(
-                    session,
-                    self.credentials["username"],
-                    self.credentials["password"],
-                    self.provider,
-                )
+                client = create_client(session, self.credentials, self.provider)
                 self.contracts = await client.contracts()
         except AuthenticationError:
             self.login_error = "invalid_auth"
@@ -223,11 +358,38 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_login_result(self, user_input=None):
         if self.login_error:
+            if self.provider.family == "gasapp":
+                return await self.async_step_gasapp_identity()
+            if self.provider.family == "energytalk":
+                return await self.async_step_energytalk_credentials()
             self.credentials = {}
             return await self.async_step_credentials()
         if not self.contracts:
             return self.async_abort(reason="no_contracts")
-        await self.async_set_unique_id(opaque(f"{self.provider.code}:" + self.contracts[0].bpno))
+        if self.reauth_entry is not None:
+            existing = {c["key"] for c in self.reauth_entry.data["contracts"]}
+            if not existing.issubset({c.key for c in self.contracts}):
+                return self.async_abort(reason="wrong_account")
+            return self.async_update_reload_and_abort(
+                self.reauth_entry,
+                data_updates={
+                    **self.credentials,
+                    "contracts": [
+                        asdict(next(c for c in self.contracts if c.key == old["key"]))
+                        for old in self.reauth_entry.data["contracts"]
+                    ],
+                },
+            )
+        await self.async_set_unique_id(
+            opaque(
+                f"{self.provider.code}:"
+                + (
+                    self.credentials["username"]
+                    if self.provider.family in ("samchully", "daesung", "haeyang")
+                    else self.contracts[0].bpno or self.contracts[0].key
+                )
+            )
+        )
         self._abort_if_unique_id_configured()
         if len(self.contracts) == 1:
             self.selected = self.contracts
@@ -236,6 +398,8 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @callback
     def async_remove(self):
+        self.gasapp_identity, self.gasapp_terms, self.gasapp_challenge = {}, [], {}
+        self.credentials = {}
         if self.login_task and not self.login_task.done():
             self.login_task.cancel()
         super().async_remove()
@@ -264,6 +428,8 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.settings.setdefault(self.selected[self.position].key, dict(DEFAULT_OPTIONS))
 
     async def async_step_tariff(self, user_input=None):
+        if not self.provider.supports_tariff:
+            return await self.async_step_source()
         regions = self.provider.regions
         profiles = self.provider.profiles
         if user_input is not None:
@@ -376,6 +542,8 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_notifications(self, user_input=None):
         if user_input is not None:
             self.current.update(user_input)
+            if not self.provider.supports_deadline:
+                self.current["automatic_submission"] = False
             self.current["weekly_day"] = int(self.current["weekly_day"])
             return await self.async_step_policy()
         return self.async_show_form(
@@ -385,6 +553,8 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_policy(self, user_input=None):
         if user_input is not None:
             self.current.update(user_input)
+            if not self.provider.supports_deadline:
+                self.current["automatic_submission"] = False
             self.current["automatic_submission_confirmed"] = True
             if self.current["source_entity"]:
                 self.current["allow_historical_submission"] = False
@@ -392,7 +562,10 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if self.position < len(self.selected):
                 return await self.async_step_tariff()
             return await self.async_step_summary()
-        return self.async_show_form(step_id="policy", data_schema=policy_schema(self.current))
+        return self.async_show_form(
+            step_id="policy",
+            data_schema=policy_schema(self.current, deadline=self.provider.supports_deadline),
+        )
 
     async def async_step_summary(self, user_input=None):
         if user_input is not None:
@@ -427,6 +600,15 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_reauth(self, entry_data):
+        self.reauth_entry = self._get_reauth_entry()
+        self.provider = get_provider(entry_data.get("provider_id", "busan"))
+        if self.provider.family == "energytalk":
+            return await self.async_step_energytalk_credentials()
+        if self.provider.family == "gasapp":
+            self.credentials = {
+                "gasapp_device_id": entry_data.get("gasapp_device_id", str(uuid.uuid4()))
+            }
+            return await self.async_step_gasapp_identity()
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(self, user_input=None):
@@ -436,16 +618,24 @@ class GasConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             provider = get_provider(entry.data.get("provider_id", "busan"))
             try:
                 async with aiohttp.ClientSession() as session:
-                    contracts = await PortalClient(
-                        session, entry.data["username"], user_input["password"], provider
+                    contracts = await create_client(
+                        session, {**entry.data, "password": user_input["password"]}, provider
                     ).contracts()
-                if (
-                    not contracts
-                    or opaque(f"{provider.code}:" + contracts[0].bpno) != entry.unique_id
+                if not contracts or (
+                    not {c["key"] for c in entry.data["contracts"]}.issubset(
+                        {c.key for c in contracts}
+                    )
                 ):
                     return self.async_abort(reason="wrong_account")
                 return self.async_update_reload_and_abort(
-                    entry, data_updates={"password": user_input["password"]}
+                    entry,
+                    data_updates={
+                        "password": user_input["password"],
+                        "contracts": [
+                            asdict(next(c for c in contracts if c.key == old["key"]))
+                            for old in entry.data["contracts"]
+                        ],
+                    },
                 )
             except AuthenticationError:
                 errors["base"] = "invalid_auth"
@@ -497,9 +687,13 @@ class GasOptionsFlow(config_entries.OptionsFlow):
         }
 
     async def async_step_menu(self, user_input=None):
-        return self.async_show_menu(
-            step_id="menu", menu_options=["tariff", "source", "notifications", "policy"]
-        )
+        provider = get_provider(self.config_entry.data.get("provider_id", "busan"))
+        menus = (["tariff"] if provider.supports_tariff else []) + [
+            "source",
+            "notifications",
+            "policy",
+        ]
+        return self.async_show_menu(step_id="menu", menu_options=menus)
 
     def finish(self, values):
         current = {**self.current, **values}
@@ -568,6 +762,12 @@ class GasOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_policy(self, user_input=None):
+        provider = get_provider(self.config_entry.data.get("provider_id", "busan"))
         if user_input is not None:
+            if not provider.supports_deadline:
+                user_input = {**user_input, "automatic_submission": False}
             return self.finish({**user_input, "automatic_submission_confirmed": True})
-        return self.async_show_form(step_id="policy", data_schema=policy_schema(self.current))
+        return self.async_show_form(
+            step_id="policy",
+            data_schema=policy_schema(self.current, deadline=provider.supports_deadline),
+        )

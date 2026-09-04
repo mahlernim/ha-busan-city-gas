@@ -1,35 +1,46 @@
-"""Redacted diagnostics: no credentials, contract IDs, cookies or raw HTML."""
+"""Support reports intentionally omit credentials, IDs, values and raw responses."""
 
-from homeassistant.components.diagnostics import async_redact_data
-
-TO_REDACT = {
-    "username",
-    "password",
-    "bpno",
-    "cano",
-    "private",
-    "recipients",
-    "received_by",
-    "label",
-    "name",
-    "addr",
-    "sernr",
-    "anlage",
-}
+from .const import DOMAIN, VERSION
+from .provider import get_provider
 
 
 async def async_get_config_entry_diagnostics(hass, entry):
-    coordinator = hass.data["busan_city_gas"][entry.entry_id]
-    return async_redact_data(
-        {
-            "entry": {"data": dict(entry.data), "options": dict(entry.options)},
-            "contracts": {
-                key: {
-                    "view": coordinator.view(key),
-                    "stored_keys": sorted(coordinator.saved["contracts"][key]),
+    provider = get_provider(entry.data.get("provider_id", "busan"))
+    runtime = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    contracts = []
+    if runtime:
+        for key in runtime.contracts:
+            view = runtime.view(key)
+            contracts.append(
+                {
+                    "bill_count": len(view["bills"]),
+                    "complete_bill_periods": sum(
+                        bool(b["start"] and b["end"]) for b in view["bills"]
+                    ),
+                    "source_configured": view["source_configured"],
+                    "calibration_required": view["gap"],
+                    "window_status": view["window_status"],
+                    "submission_status": view["submission_status"],
+                    "automatic_submission": view["automatic_submission"],
+                    "registration_required": view["service_registration_required"],
+                    "channel_change_required": view["channel_change_required"],
+                    "errors": {
+                        k: view.get(k)
+                        for k in (
+                            "error",
+                            "meter_error",
+                            "tariff_error",
+                            "heat_error",
+                            "submission_error",
+                        )
+                    },
                 }
-                for key in coordinator.contracts
-            },
-        },
-        TO_REDACT,
-    )
+            )
+    return {
+        "version": VERSION,
+        "provider": provider.id,
+        "family": provider.family,
+        "config_version": entry.version,
+        "loaded": runtime is not None,
+        "contracts": contracts,
+    }

@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 
 import aiohttp
@@ -35,6 +35,7 @@ class Contract:
     bpno: str
     cano: str
     label: str
+    private: dict = field(default_factory=dict, repr=False)
 
 
 def document(html: str) -> BeautifulSoup:

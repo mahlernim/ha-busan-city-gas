@@ -51,28 +51,49 @@ class Segment:
 @dataclass
 class Bill:
     month: str
-    amount: str
+    amount: str | None
     segments: list[Segment]
-    base_charge: str = "900"
+    base_charge: str | None = "900"
     price_lines: list[tuple[str, str]] = field(default_factory=list)
     due_date: str | None = None
     unsupported_adjustments: bool = False
+    reported_usage: str | None = None
+    period_start: str | None = None
+    period_end: str | None = None
+    closing_reading: str | None = None
+    meter_id: str | None = None
 
     @property
     def usage(self) -> Decimal:
+        if not self.segments:
+            return decimal(self.reported_usage) if self.reported_usage is not None else None
         return sum((s.usage for s in self.segments), Decimal(0))
 
     @property
     def heat(self) -> Decimal:
+        if not self.segments:
+            return None
         return sum((s.heat for s in self.segments), Decimal(0))
 
     @property
     def start(self) -> date:
+        if not self.segments:
+            return date.fromisoformat(self.period_start) if self.period_start else None
         return date.fromisoformat(self.segments[0].start)
 
     @property
     def end(self) -> date:
+        if not self.segments:
+            return date.fromisoformat(self.period_end) if self.period_end else None
         return date.fromisoformat(self.segments[-1].end)
+
+    @property
+    def last_reading(self):
+        return self.segments[-1].current if self.segments else self.closing_reading
+
+    @property
+    def meter(self):
+        return self.segments[-1].meter if self.segments else self.meter_id
 
     def reconstructed(self) -> Decimal:
         subtotal = decimal(self.base_charge) + sum(
@@ -145,7 +166,7 @@ class MeterWindow:
 
     @property
     def cycle(self) -> str:
-        return f"{self.meter}:{self.start}:{self.end}"
+        return self.private.get("cycle_id") or f"{self.meter}:{self.start}:{self.end}"
 
     def is_open(self, today: date) -> bool:
         return self.eligible and date.fromisoformat(self.start) <= today <= date.fromisoformat(
@@ -296,9 +317,14 @@ def forecast(
             sensorless = SensorlessModel()
             sensorless.sync(bills, window, estimate, now)
         result.update(sensorless.snapshot(now))
+    if source_configured:
+        avg, count = estimate.average(now.date())
+        result.update(average=str(avg) if avg is not None else None, average_days=count)
     if not bills or window is None or window.planned is None:
         return result
     latest = max(bills, key=lambda b: b.month)
+    if latest.end is None or latest.last_reading is None or not latest.meter:
+        return result
     start = latest.end + timedelta(days=1)
     end = date.fromisoformat(window.planned)
     if not start <= now.date() <= end:
@@ -318,14 +344,14 @@ def forecast(
         result.update(average=str(avg) if avg is not None else None, average_days=count)
         if estimate.value is not None and not estimate.gap:
             # Physical meter identity must agree with the latest bill.
-            if latest.segments[-1].meter == window.meter:
-                usage = decimal(estimate.value) - decimal(latest.segments[-1].current)
+            if latest.meter == window.meter:
+                usage = decimal(estimate.value) - decimal(latest.last_reading)
                 if usage < 0:
                     usage = None
             if usage is not None and avg is not None:
                 projected = usage + avg * remaining
-    elif result["reading"] is not None and latest.segments[-1].meter == window.meter:
-        usage = decimal(result["reading"]) - decimal(latest.segments[-1].current)
+    elif result["reading"] is not None and latest.meter == window.meter:
+        usage = decimal(result["reading"]) - decimal(latest.last_reading)
         if usage < 0:
             usage = None
         if usage is not None:
@@ -338,7 +364,12 @@ def forecast(
         result["usage"] = str(usage)
     if projected is not None:
         result.update(projected_usage=str(projected), quality="estimated")
-    if tariff and not latest.unsupported_adjustments and tariff.effective <= now.date().isoformat():
+    if (
+        tariff
+        and latest.segments
+        and not latest.unsupported_adjustments
+        and tariff.effective <= now.date().isoformat()
+    ):
         segment = latest.segments[-1]
         heat_factor = segment.heat_factor
         if (

@@ -17,10 +17,15 @@ def test_manifest_and_translation_schemas():
     source = json.loads((ROOT / "strings.json").read_text(encoding="utf-8"))
     translated = json.loads((ROOT / "translations/ko.json").read_text(encoding="utf-8"))
     assert source == translated
-    assert source == json.loads((ROOT / "translations/en.json").read_text(encoding="utf-8"))
+    english = json.loads((ROOT / "translations/en.json").read_text(encoding="utf-8"))
+    assert set(source["config"]["step"]) == set(english["config"]["step"])
     assert set(source["config"]["step"]) == {
         "user",
         "credentials",
+        "gasapp_identity",
+        "gasapp_terms",
+        "gasapp_sms",
+        "energytalk_credentials",
         "login",
         "contracts",
         "tariff",

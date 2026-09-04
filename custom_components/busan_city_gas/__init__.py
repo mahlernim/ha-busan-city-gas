@@ -1,4 +1,4 @@
-"""SK E&S regional city gas Home Assistant integration."""
+"""Korean city gas Home Assistant integration."""
 
 from __future__ import annotations
 
@@ -157,7 +157,7 @@ async def async_setup_entry(hass, entry):
             hass,
             frontend_url_path=PANEL_PATH,
             webcomponent_name="busan-city-gas-panel",
-            sidebar_title="SK E&S 도시가스",
+            sidebar_title="똑똑 자가검침 AI",
             sidebar_icon="mdi:meter-gas",
             module_url=f"/{DOMAIN}_static/panel.js?v={VERSION}",
             require_admin=False,

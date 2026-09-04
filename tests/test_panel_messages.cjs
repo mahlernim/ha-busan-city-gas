@@ -98,3 +98,32 @@ test('approved submission uses displayed integer, proposal and original contract
  assert.equal(calls[1].target,row);
  assert.match(panel.message,/접수 확인: 128/);
 });
+for (const action of ['register','channel']) {
+ test(`cancelled ${action} consent never calls backend`,async()=>{
+  const panel=Object.create(context.Panel.prototype);
+  panel.rows=[{key:'a',entry_id:'e',label:'예시 계약'}];
+  panel.render=()=>{};panel.load=async()=>{};
+  let calls=0; panel.call=async()=>{calls++;};
+  context.window={confirm:text=>{assert.match(text,/예시 계약/);assert.match(text,/동의/);return false;}};
+  await panel.act(action);
+  assert.equal(calls,0);assert.match(panel.message,/취소/);
+ });
+ test(`approved ${action} sends only consented service preparation`,async()=>{
+  const panel=Object.create(context.Panel.prototype);
+  const row={key:'a',entry_id:'e',label:'예시 계약'};
+  panel.rows=[row];panel.render=()=>{};panel.load=async()=>{};
+  const calls=[];panel.call=async(command,data,target)=>calls.push({command,data,target});
+  context.window={confirm:text=>{assert.match(text,action==='register'?/서비스에 가입/:/채널을 가스앱으로 변경/);return true;}};
+  await panel.act(action);
+  assert.equal(calls.length,1);assert.equal(calls[0].command,'prepare_service');
+  assert.equal(calls[0].data.action,action);assert.equal(calls[0].data.consent,true);
+  assert.equal(calls[0].target,row);assert.match(panel.message,/검침값은 전송하지 않았습니다/);
+ });
+}
+
+test('dynamic permission does not invent a utility deadline',()=>{
+ const text=context.windowMessage({...base,window_start:null,window_end:null,window_status:'open',supports_deadline:false});
+ assert.match(text,/현재 자가검침을 허용/);
+ assert.match(text,/마감일은 제공되지/);
+ assert.ok(!text.includes('미확인부터'));
+});

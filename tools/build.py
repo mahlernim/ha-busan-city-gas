@@ -1,5 +1,6 @@
 """Build a manual-install release archive; never deploy or publish it."""
 
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -8,8 +9,10 @@ from zipfile import ZIP_DEFLATED, ZipFile
 ROOT = Path(__file__).resolve().parents[1]
 source = ROOT / "custom_components" / "busan_city_gas"
 version = json.loads((source / "manifest.json").read_text(encoding="utf-8"))["version"]
-destination = ROOT / "dist" / "busan_city_gas.zip"
-destination.parent.mkdir(exist_ok=True)
+parser = argparse.ArgumentParser()
+parser.add_argument("--output", type=Path, default=ROOT / "dist" / "busan_city_gas.zip")
+destination = parser.parse_args().output
+destination.parent.mkdir(parents=True, exist_ok=True)
 with ZipFile(destination, "x", compression=ZIP_DEFLATED) as archive:
     for file in sorted(source.rglob("*")):
         if (

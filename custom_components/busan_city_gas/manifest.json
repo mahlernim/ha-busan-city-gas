@@ -1,14 +1,25 @@
 {
   "domain": "busan_city_gas",
-  "name": "SK E&S 도시가스",
-  "after_dependencies": ["mobile_app"],
-  "codeowners": ["@mahlernim"],
+  "name": "똑똑 자가검침 AI",
+  "after_dependencies": [
+    "mobile_app"
+  ],
+  "codeowners": [
+    "@mahlernim"
+  ],
   "config_flow": true,
-  "dependencies": ["frontend", "http", "panel_custom", "websocket_api"],
+  "dependencies": [
+    "frontend",
+    "http",
+    "panel_custom",
+    "websocket_api"
+  ],
   "documentation": "https://github.com/mahlernim/ha-busan-city-gas",
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/mahlernim/ha-busan-city-gas/issues",
-  "requirements": ["beautifulsoup4==4.14.3"],
-  "version": "0.5.0"
+  "requirements": [
+    "beautifulsoup4==4.14.3"
+  ],
+  "version": "0.6.0"
 }
