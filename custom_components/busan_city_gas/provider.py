@@ -1,4 +1,4 @@
-"""Supported SK E&S regional gas providers."""
+"""Supported Korean gas providers and their connection capabilities."""
 
 from __future__ import annotations
 
@@ -14,13 +14,32 @@ class Provider:
     regions: tuple[tuple[str, str], ...] = (("default", "기본 지역"),)
     profiles: tuple[tuple[str, str, str], ...] = (("residential", "취사전용", "취사"),)
     threshold_mj: str | None = None
+    family: str = "skens"
+    company_codes: tuple[str, ...] = ()
+    homepage: str = ""
+
+    @property
+    def supports_submission(self) -> bool:
+        return self.family in ("skens", "gasapp", "samchully", "energytalk", "daesung", "haeyang")
+
+    @property
+    def supports_deadline(self) -> bool:
+        return self.supports_submission and self.family != "energytalk"
+
+    @property
+    def supports_tariff(self) -> bool:
+        return self.family == "skens"
 
     @property
     def website(self) -> str:
+        if self.homepage:
+            return self.homepage
         return f"https://www.skens.com/{self.path}/login/login.do"
 
     @property
     def billing_url(self) -> str:
+        if self.family != "skens":
+            return "https://app.gasapp.co.kr/" if self.family == "gasapp" else self.website
         return f"https://ebpp.skens.com/{self.path}/charge/ask.do"
 
 
@@ -112,6 +131,71 @@ PROVIDERS = {
         ),
     )
 }
+
+# Brand and platform company identity are separate (Chambit has five codes).
+for _id, _name, _codes in (
+    ("seoul", "서울도시가스", ("1",)),
+    ("incheon", "인천도시가스", ("2",)),
+    ("jeju", "제주도시가스", ("3",)),
+    ("jb", "JB", ("4",)),
+    ("daeryun", "대륜E&S", ("5",)),
+    ("yesco", "예스코", ("6",)),
+    ("gunsan", "군산도시가스", ("7",)),
+    ("kiturami", "귀뚜라미에너지", ("8",)),
+    ("chambit", "참빛도시가스 계열", ("9", "10", "11", "12", "13")),
+    ("kyungdong", "경동도시가스", ("14",)),
+    ("mcenergy", "MC에너지 (목포도시가스)", ("15",)),
+    ("seohae", "미래엔서해에너지", ("16",)),
+    ("daehwa", "대화도시가스", ("17",)),
+    ("jeonbukgas", "전북도시가스", ("18",)),
+):
+    PROVIDERS[_id] = Provider(
+        _id,
+        _name,
+        f"gasapp:{_id}",
+        "",
+        family="gasapp",
+        company_codes=_codes,
+        homepage="https://www.gasapp.co.kr/",
+    )
+PROVIDERS["samchully"] = Provider(
+    "samchully",
+    "삼천리",
+    "samchully",
+    "",
+    family="samchully",
+    homepage="https://cs.samchully.co.kr/",
+)
+
+for _id, _name, _tenant in (
+    ("cncity", "CNCITY에너지", "cncity"),
+    ("gyeongnam", "경남에너지", "kne"),
+    ("seorabeol", "서라벌도시가스", "srb"),
+    ("gse", "지에스이", "gse"),
+):
+    PROVIDERS[_id] = Provider(
+        _id,
+        _name,
+        f"energytalk:{_tenant}",
+        _tenant,
+        family="energytalk",
+        homepage="https://energytalk.ai/",
+    )
+
+for _id, _name, _host in (
+    ("daesung", "대성에너지", "https://cyber.daesungenergy.com"),
+    ("daesungclean", "대성청정에너지", "https://www.daesungcleanenergy.co.kr"),
+):
+    PROVIDERS[_id] = Provider(_id, _name, _id, "", family="daesung", homepage=_host)
+
+PROVIDERS["haeyang"] = Provider(
+    "haeyang",
+    "해양에너지",
+    "haeyang",
+    "",
+    family="haeyang",
+    homepage="https://m.hyenergy.co.kr/",
+)
 
 
 def get_provider(provider_id: str) -> Provider:

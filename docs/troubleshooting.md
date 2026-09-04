@@ -2,7 +2,7 @@
 
 [처음으로](../README.md) · [사용법](usage.md) · [오류 제보](https://github.com/mahlernim/ha-busan-city-gas/issues/new?template=test-report.yml)
 
-## 통합 목록에 SK E&S 도시가스가 없어요
+## 통합 목록에 똑똑 자가검침 AI가 없어요
 
 HACS 다운로드 후 Home Assistant를 재시작했는지 확인해 주세요. 브라우저를 새로고침한 뒤 다시 검색합니다.
 HACS 기본 목록에 등록된 통합은 아니므로 처음에는 사용자 지정 저장소로 추가해야 합니다.

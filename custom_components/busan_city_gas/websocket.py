@@ -122,6 +122,27 @@ async def ws_check_submission(hass, connection, msg):
         fail(connection, msg, error)
 
 
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/prepare_service",
+        **BASE,
+        vol.Required("action"): vol.In(["register", "channel"]),
+        vol.Required("consent"): bool,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_prepare_service(hass, connection, msg):
+    try:
+        item = runtime(hass, msg["entry_id"])
+        await allowed(item, connection, msg["key"])
+        connection.send_result(
+            msg["id"], await item.prepare_service(msg["key"], msg["action"], msg["consent"])
+        )
+    except Exception as error:
+        fail(connection, msg, error)
+
+
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/test_notification", **BASE})
 @websocket_api.async_response
 async def ws_test_notification(hass, connection, msg):
@@ -160,6 +181,7 @@ def async_register(hass):
         ws_proposal,
         ws_submit,
         ws_check_submission,
+        ws_prepare_service,
         ws_test_notification,
         ws_subscribe,
     ):

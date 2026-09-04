@@ -32,10 +32,16 @@ CONTRACT_HTML = '<script>f({BPNO:"1111"})</script><input id="list_cano_0" value=
 
 
 def test_provider_registry_and_busan_identity_are_stable():
-    assert {key: provider.code for key, provider in PROVIDERS.items()} == EXPECTED
+    assert {
+        key: provider.code for key, provider in PROVIDERS.items() if provider.family == "skens"
+    } == EXPECTED
     busan = contracts_from_html(CONTRACT_HTML, PROVIDERS["busan"])[0]
     assert busan.key == opaque("C000:1111:2222")
-    keys = {contracts_from_html(CONTRACT_HTML, provider)[0].key for provider in PROVIDERS.values()}
+    keys = {
+        contracts_from_html(CONTRACT_HTML, provider)[0].key
+        for provider in PROVIDERS.values()
+        if provider.family == "skens"
+    }
     assert len(keys) == 8
 
 

@@ -152,7 +152,13 @@ class SensorlessModel:
 
         # A dated bill is an anchor; an undated portal 'previous' value is not.
         matching = [
-            b for b in bills if meter and b.segments[-1].meter == meter and b.end < now.date()
+            b
+            for b in bills
+            if meter
+            and b.meter == meter
+            and b.last_reading is not None
+            and b.end
+            and b.end < now.date()
         ]
         if matching:
             latest = max(matching, key=lambda b: b.end)
@@ -161,7 +167,7 @@ class SensorlessModel:
             if not anchor:
                 self.state["checkpoint"] = {
                     "at": at.isoformat(),
-                    "value": latest.segments[-1].current,
+                    "value": latest.last_reading,
                 }
                 self.state["anchor_kind"] = "official"
 
@@ -179,7 +185,14 @@ class SensorlessModel:
                     "end": b.end.isoformat(),
                     "daily": str(b.usage / ((b.end - b.start).days + 1)),
                 }
-                for b in sorted(bills, key=lambda b: (b.end, b.month))
+                for b in sorted(
+                    (
+                        b
+                        for b in bills
+                        if b.start and b.end and b.usage is not None and b.start <= b.end
+                    ),
+                    key=lambda b: (b.end, b.month),
+                )
             ],
             "recent": recent,
             "learning_days": elapsed,

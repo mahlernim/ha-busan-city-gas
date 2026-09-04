@@ -18,6 +18,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from .clients import create_client
 from .config_flow import phones
 from .const import (
     DEFAULT_OPTIONS,
@@ -44,9 +45,7 @@ class AccountCoordinator(DataUpdateCoordinator):
         self.provider = get_provider(entry.data.get("provider_id", "busan"))
         self.store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}", private=True)
         self.session = aiohttp.ClientSession(cookie_jar=aiohttp.CookieJar())
-        self.client = PortalClient(
-            self.session, entry.data["username"], entry.data["password"], self.provider
-        )
+        self.client = create_client(self.session, entry.data, self.provider)
         self.contracts = {c["key"]: Contract(**c) for c in entry.data["contracts"]}
         self.saved: dict = {}
         self.estimates: dict[str, Estimate] = {}
@@ -107,9 +106,14 @@ class AccountCoordinator(DataUpdateCoordinator):
             async def query(k=key, c=contract):
                 window = await self.client.meter(c)
                 previous = self.windows.get(k)
-                if previous and previous.meter != window.meter:
+                known_meter = self.saved["contracts"][k].get("last_meter") or (
+                    previous.meter if previous else None
+                )
+                if known_meter and window.meter and known_meter != window.meter:
                     self.estimates[k].invalidate(dt_util.now())
                     self.estimates[k].record("physical_meter_changed", dt_util.now())
+                if window.meter:
+                    self.saved["contracts"][k]["last_meter"] = window.meter
                 self.windows[k] = window
                 self.saved["contracts"][k]["window"] = asdict(window)
                 self.sync_model(k)
@@ -119,7 +123,11 @@ class AccountCoordinator(DataUpdateCoordinator):
                 await self.client.submit(c, window, value, now=dt_util.now())
 
             self.submissions[key] = SubmissionManager(
-                state, self.persist, query, write, enabled=SUBMISSION_ENABLED
+                state,
+                self.persist,
+                query,
+                write,
+                enabled=SUBMISSION_ENABLED and self.provider.supports_submission,
             )
             if source:
                 self.observe(key)
@@ -185,6 +193,20 @@ class AccountCoordinator(DataUpdateCoordinator):
             dt_util.now(),
         )
 
+        model, window = self.models[key], self.windows.get(key)
+        if window and window.meter and not model.state.get("checkpoint"):
+            readings = getattr(self.client, "readings", {}).get(key, [])
+            matching = [
+                r
+                for r in readings
+                if r.get("meter") == window.meter and r["date"] <= dt_util.now().date().isoformat()
+            ]
+            if matching:
+                latest = max(matching, key=lambda r: r["date"])
+                at = datetime.fromisoformat(latest["date"]).replace(tzinfo=dt_util.now().tzinfo)
+                model.state["checkpoint"] = {"at": at.isoformat(), "value": latest["value"]}
+                model.state["anchor_kind"] = "official"
+
     async def source_changed(self, key):
         async with self.action_lock:
             self.observe(key)
@@ -224,6 +246,8 @@ class AccountCoordinator(DataUpdateCoordinator):
             self.changed()
 
     async def _fetch_tariff(self):
+        if not self.provider.supports_tariff:
+            return
         # Public requests must not race account login cookie updates.
         async with aiohttp.ClientSession(cookie_jar=aiohttp.DummyCookieJar()) as session:
             for key, item in self.saved["contracts"].items():
@@ -270,9 +294,19 @@ class AccountCoordinator(DataUpdateCoordinator):
                     contract, item.get("bills", {}), progress=bill_progress
                 )
                 item["history_errors"] = self.client.history_errors.get(key, [])
-                latest_bill = Bill.load(item["bills"][max(item["bills"])])
-                heat_start = (latest_bill.end + timedelta(days=1)).isoformat()
-                if heat_start <= dt_util.now().date().isoformat():
+                latest_bill = (
+                    Bill.load(item["bills"][max(item["bills"])]) if item["bills"] else None
+                )
+                heat_start = (
+                    (latest_bill.end + timedelta(days=1)).isoformat()
+                    if latest_bill and latest_bill.end
+                    else None
+                )
+                if (
+                    self.provider.supports_tariff
+                    and heat_start
+                    and heat_start <= dt_util.now().date().isoformat()
+                ):
                     self.progress[key] = "현재 기간 열량 확인 중…"
                     self.changed()
                     try:
@@ -306,7 +340,7 @@ class AccountCoordinator(DataUpdateCoordinator):
         window = self.windows.get(key)
         today = dt_util.now().date().isoformat()
         window_status = "unknown"
-        if window and not item.get("meter_error"):
+        if window and window.start and window.end and not item.get("meter_error"):
             if today < window.start:
                 window_status = "before"
             elif today > window.end:
@@ -336,6 +370,12 @@ class AccountCoordinator(DataUpdateCoordinator):
         )
         return {
             "provider_id": self.provider.id,
+            "provider_family": self.provider.family,
+            "supports_submission": self.provider.supports_submission,
+            "service_registration_required": bool(
+                window and window.private.get("registered") is False
+            ),
+            "channel_change_required": bool(window and window.private.get("needs_channel_change")),
             "provider_name": self.provider.name,
             "provider_url": self.provider.billing_url,
             "tariff_profile": self.options(key).get("tariff_profile", "residential"),
@@ -354,8 +394,8 @@ class AccountCoordinator(DataUpdateCoordinator):
             "billed_amount": bills[-1].amount if bills else None,
             "previous_amount": bills[-2].amount if len(bills) > 1 else None,
             "last_year_amount": prior_year.amount if prior_year else None,
-            "billed_usage": str(bills[-1].usage) if bills else None,
-            "billed_heat": str(bills[-1].heat) if bills else None,
+            "billed_usage": str(bills[-1].usage) if bills and bills[-1].usage is not None else None,
+            "billed_heat": str(bills[-1].heat) if bills and bills[-1].heat is not None else None,
             "due_date": bills[-1].due_date if bills else None,
             "last_refresh": item.get("last_refresh"),
             "error": item.get("error"),
@@ -365,16 +405,22 @@ class AccountCoordinator(DataUpdateCoordinator):
             "history_errors": item.get("history_errors", []),
             "refreshing": self.refreshing,
             "refresh_progress": self.progress.get(key, "공식 정보 조회 준비 중…"),
-            "submission_locked": not SUBMISSION_ENABLED,
-            "automatic_submission": self.options(key)["automatic_submission"],
+            "submission_locked": not (SUBMISSION_ENABLED and self.provider.supports_submission),
+            "automatic_submission": self.options(key)["automatic_submission"]
+            and self.provider.supports_deadline,
+            "supports_deadline": self.provider.supports_deadline,
             "automatic_submission_needs_confirmation": bool(
                 self.entry.options.get("contracts", {}).get(key, {}).get("automatic_submission")
                 and not self.options(key)["automatic_submission_confirmed"]
             ),
-            "window_start": window.start if window else None,
+            "window_start": (window.start or None)
+            if window and not window.private.get("dynamic_window")
+            else None,
             "window_status": window_status,
             "today": today,
-            "window_end": window.end if window else None,
+            "window_end": (window.end or None)
+            if window and not window.private.get("dynamic_window")
+            else None,
             "window_open": window_status == "open",
             "submission_status": cycle.get("status", "not_submitted"),
             "submission_error": cycle.get("error"),
@@ -397,9 +443,9 @@ class AccountCoordinator(DataUpdateCoordinator):
                 {
                     "month": b.month,
                     "amount": b.amount,
-                    "usage": str(b.usage),
-                    "start": b.start.isoformat(),
-                    "end": b.end.isoformat(),
+                    "usage": str(b.usage) if b.usage is not None else None,
+                    "start": b.start.isoformat() if b.start else None,
+                    "end": b.end.isoformat() if b.end else None,
                     "unsupported_adjustments": b.unsupported_adjustments,
                 }
                 for b in reversed(bills)
@@ -465,6 +511,8 @@ class AccountCoordinator(DataUpdateCoordinator):
             self.changed()
 
     def propose(self, key):
+        if not self.provider.supports_submission:
+            raise GasError("submission_disabled")
         view, window = self.view(key), self.windows.get(key)
         estimate = self.estimates[key]
         if not self.options(key)["source_entity"] and self.current_physical(key):
@@ -511,6 +559,20 @@ class AccountCoordinator(DataUpdateCoordinator):
                 != dt_util.now().date()
             ):
                 raise GasError("physical_calibration_required")
+
+    async def prepare_service(self, key, action, consent):
+        if self.provider.family != "gasapp" or not consent:
+            raise GasError("consent_required")
+        async with self.action_lock:
+            window = await self.client.prepare_service(self.contracts[key], action, consent)
+            self.windows[key] = window
+            self.saved["contracts"][key]["window"] = asdict(window)
+            self.saved["contracts"][key].pop("meter_error", None)
+            self.submissions[key].proposals.clear()
+            self.sync_model(key)
+            await self.persist()
+            self.changed()
+            return self.view(key)
 
     async def check_submission(self, key):
         """Coalesce concurrent receipt-only reads; leave invoices untouched."""
@@ -790,7 +852,7 @@ class AccountCoordinator(DataUpdateCoordinator):
                     except GasError as error:
                         await self.alert(key, str(error))
                 window = self.windows.get(key)
-                if window is None:
+                if window is None or window.private.get("dynamic_window"):
                     continue
                 if data.get("submissions", {}).get(window.cycle, {}).get("status") == "confirmed":
                     continue

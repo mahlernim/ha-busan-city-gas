@@ -1,10 +1,10 @@
 {
-  "title": "SK E&S 도시가스",
+  "title": "똑똑 자가검침 AI",
   "config": {
     "step": {
       "user": {
         "title": "도시가스 공급사 선택",
-        "description": "계약된 SK E&S 지역 도시가스 공급사를 선택하세요. 청구서나 공급사 홈페이지에서 정확한 이름을 확인하세요.",
+        "description": "Choose the provider on your bill. The next step asks for its supported credentials: website login, Gasapp SMS verification, or an EnergyTalk session token.",
         "data": {
           "provider_id": "공급사"
         }
@@ -59,7 +59,7 @@
       },
       "policy": {
         "title": "자가검침 제출 정책",
-        "description": "자동 제출을 켜면 마감일의 설정 시각 이후, 미제출 상태를 확인하고 검침값을 선택한 도시가스 공급사로 실제 전송합니다. 기본은 꺼짐입니다.\n이전 버전에서 켜둔 설정은 자동으로 실행되지 않습니다. 이 화면에서 다시 켜고 저장해야 합니다. 첫 사용은 직접 제출 후 홈페이지에서 접수값을 확인하는 것을 권장합니다.",
+        "description": "자동 제출을 켜면 마감일의 설정 시각 이후, 미제출 상태를 확인하고 검침값을 선택한 도시가스 공급사로 실제 전송합니다. 기본은 꺼짐입니다.\n이전 버전에서 켜둔 설정은 자동으로 실행되지 않습니다. 이 화면에서 다시 켜고 저장해야 합니다. 첫 사용은 직접 제출 후 홈페이지에서 접수값을 확인하는 것을 권장합니다.\nEnergyTalk does not publish a closing date, so deadline automation is unavailable. Manual submission and Home Assistant automation actions remain available.",
         "data": {
           "automatic_submission": "마감일 미제출 시 자동 제출",
           "deadline_time": "마감일 자동 제출 시간",
@@ -106,6 +106,38 @@
           "tariff_region": "요금 지역",
           "tariff_profile": "주택용 유형"
         }
+      },
+      "gasapp_identity": {
+        "title": "Gasapp identity verification",
+        "description": "Enter the mobile subscriber details. Birthday: YYMMDD. Gender code: first digit after the hyphen in the resident registration number (1–4). Carrier: 1=SKT, 2=KT, 3=LG U+. Review the terms before requesting an SMS.",
+        "data": {
+          "name": "Full name",
+          "phone": "Mobile number",
+          "birthday": "Birthday (YYMMDD)",
+          "gender": "Gender code (1–4)",
+          "carrier": "Carrier (1–3)"
+        }
+      },
+      "gasapp_terms": {
+        "title": "Identity verification terms",
+        "description": "{terms}\nConsent requests an authentication SMS.",
+        "data": {
+          "consent": "I agree to the displayed required terms"
+        }
+      },
+      "gasapp_sms": {
+        "title": "SMS verification",
+        "description": "Enter the code sent to your phone. After verification, linked contracts for your selected provider are retrieved.",
+        "data": {
+          "otp": "Verification code"
+        }
+      },
+      "energytalk_credentials": {
+        "title": "Connect EnergyTalk session",
+        "description": "Sign in to EnergyTalk with Kakao and select the address for {provider}. In your browser developer tools, Network, open a request to /api/fetch and copy the Authorization header token without the Bearer prefix. Paste only that token here. Treat it like a password. The integration connects the selected address; replace the token here when it expires. See the installation guide for details.",
+        "data": {
+          "energytalk_token": "Session token"
+        }
       }
     },
     "error": {
@@ -113,7 +145,11 @@
       "cannot_connect": "서버에 연결할 수 없습니다. 잠시 후 다시 시도하세요.",
       "schema_changed": "사이트 응답이 예상과 다릅니다. 통합 업데이트가 필요할 수 있습니다.",
       "invalid_source": "m³ 단위 누적 센서를 선택하세요. 일일·월간 utility meter는 사용할 수 없습니다.",
-      "invalid_reading": "유효한 센서 상태와 계량기 숫자를 확인해 주세요."
+      "invalid_reading": "유효한 센서 상태와 계량기 숫자를 확인해 주세요.",
+      "consent_required": "필수 약관에 동의해 주세요.",
+      "invalid_identity": "휴대폰 가입자 정보를 확인해 주세요.",
+      "invalid_otp": "문자 인증번호를 확인해 주세요.",
+      "invalid_tariff": "지원되는 주택용 요금 유형과 지역을 선택하세요."
     },
     "abort": {
       "no_contracts": "연결된 계약이 없습니다. 선택한 도시가스 공급사 홈페이지에서 계약 연결을 확인하세요.",
