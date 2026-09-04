@@ -192,7 +192,7 @@ class HaeyangClient:
             )
         return result
 
-    async def bills(self, contract, cached=None):
+    async def bills(self, contract, cached=None, progress=None):
         self.account(contract)
         date_ = today()
         payload = await self.call(
@@ -206,8 +206,9 @@ class HaeyangClient:
             },
         )
         result = dict(cached or {})
-        self.history_errors = {}
-        for row in rows(payload):
+        errors = []
+        entries = rows(payload)
+        for completed, row in enumerate(entries, start=1):
             key = month(required(row, "YEARMONTH"))
             amount = number(row, "NOTICE_AMT")
             # Public FEE_COM0100.toCommaNumber multiplies SAP currency amounts by 100.
@@ -238,8 +239,11 @@ class HaeyangClient:
                 except AuthenticationError:
                     raise
                 except GasError as error:
-                    self.history_errors[key] = str(error)
+                    errors.append(str(error))
             result[key] = bill.dump()
+            if progress:
+                progress(result, completed, len(entries))
+        self.history_errors[contract.key] = sorted(set(errors))
         return result
 
     async def meter(self, contract):

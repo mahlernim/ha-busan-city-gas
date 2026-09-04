@@ -102,7 +102,19 @@ async def test_detail_failure_preserves_monthly_bill(wire):
     (contract,) = await client.contracts()
     responses["BILL002"] = GasError("provider_schema_changed")
     assert (await client.bills(contract))["202608"]["amount"] == "12345"
-    assert client.history_errors == {"202608": "provider_schema_changed"}
+    assert client.history_errors == {contract.key: ["provider_schema_changed"]}
+
+
+async def test_bills_report_progress_like_every_other_adapter(wire):
+    client, _, _ = wire
+    (contract,) = await client.contracts()
+    steps = []
+    bills = await client.bills(
+        contract, {}, progress=lambda b, done, total: steps.append((sorted(b), done, total))
+    )
+    assert steps == [(["202608"], 1, 1)]
+    assert client.history_errors == {contract.key: []}
+    assert "202608" in bills
 
 
 async def test_exact_write_dto_no_payer_or_fake_image(wire):

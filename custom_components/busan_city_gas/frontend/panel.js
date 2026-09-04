@@ -212,7 +212,7 @@ class BusanCityGasPanel extends HTMLElement {
       ${r.submission_proposed != null ? `<p>마지막 요청값 ${fmt(r.submission_proposed)} · ${esc(r.submission_attempted_at || "시각 미확인")}</p>` : ""}
       ${r.accepted_checked_at ? `<p class="muted">접수 상태 확인 시각 ${esc(r.accepted_checked_at)} · 이번 조회값 ${r.submission_observed != null ? fmt(r.submission_observed) : "미확인"}</p>` : ""}
       ${r.submission_status === "confirmed" && r.receipt_in_latest_read === false ? `<p class="warning">${esc(receiptMessage(r))}</p>` : ""}
-      ${r.provider_family === "gasapp" && (r.service_registration_required || r.channel_change_required) ? `<p>${esc(r.service_registration_required ? errors.service_registration_required : errors.channel_change_required)}</p><div class="actions">${r.service_registration_required ? button("register","자가검침 서비스 가입") : button("channel","가스앱으로 접수 채널 변경")}</div>` : ""}
+      ${r.provider_family === "gasapp" && this._hass?.user?.is_admin && (r.service_registration_required || r.channel_change_required) ? `<p>${esc(r.service_registration_required ? errors.service_registration_required : errors.channel_change_required)}</p><div class="actions">${r.service_registration_required ? button("register","자가검침 서비스 가입") : button("channel","가스앱으로 접수 채널 변경")}</div>` : ""}
       <div class="actions">${button("check",r.submission_checking ? "제출 내역 확인 중…" : "제출 내역 확인",r.submission_checking)}</div>
       <small>접수 내역만 조회합니다. 검침값 제출·재전송 및 고지서 재조회는 하지 않습니다.</small>
       ${r.submission_locked ? '<p class="warning">현재 제출 기능이 중지되어 있습니다. 필요한 자가검침은 홈페이지에서 직접 해주세요.</p>' : ""}
