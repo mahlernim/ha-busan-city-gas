@@ -404,24 +404,27 @@ class GasappClient:
         return await self.meter(contract)
 
     async def submit(self, contract, expected, value, *, now):
-        if now.tzinfo is None:
-            raise SubmissionNotSent("invalid_submission_time")
-        numeric = decimal(value)
-        fresh = await self.meter(contract)
-        if (
-            expected.private.get("account_key") != contract.key
-            or not fresh.meter
-            or fresh.cycle != expected.cycle
-            or fresh.previous != expected.previous
-            or fresh.private["meter_changed"] != expected.private["meter_changed"]
-            or not fresh.is_open(now.date())
-            or fresh.private["submission_blocked"]
-            or decimal(value) != int(decimal(value))
-            or decimal(value) < decimal(fresh.previous)
-            or decimal(value) > 99999999
-            or (fresh.private["digits"] and len(str(int(numeric))) > fresh.private["digits"])
-        ):
-            raise SubmissionNotSent("stale_proposal")
+        try:
+            if now.tzinfo is None:
+                raise GasError("invalid_submission_time")
+            numeric = decimal(value)
+            fresh = await self.meter(contract)
+            if (
+                expected.private.get("account_key") != contract.key
+                or not fresh.meter
+                or fresh.cycle != expected.cycle
+                or fresh.previous != expected.previous
+                or fresh.private["meter_changed"] != expected.private["meter_changed"]
+                or not fresh.is_open(now.date())
+                or fresh.private["submission_blocked"]
+                or numeric != int(numeric)
+                or numeric < decimal(fresh.previous)
+                or numeric > 99999999
+                or (fresh.private["digits"] and len(str(int(numeric))) > fresh.private["digits"])
+            ):
+                raise GasError("stale_proposal")
+        except GasError as error:
+            raise SubmissionNotSent(str(error)) from None
         try:
             response = unwrap(
                 await self.call(

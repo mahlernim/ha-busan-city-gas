@@ -16,6 +16,7 @@ from custom_components.busan_city_gas.portal import (
 )
 from custom_components.busan_city_gas.provider import Provider
 from custom_components.busan_city_gas.provider_transport import flag, number, request
+from custom_components.busan_city_gas.submission import SubmissionManager
 from custom_components.busan_city_gas.submission_transport import (
     SubmissionRejected,
     SubmissionUncertain,
@@ -218,6 +219,40 @@ async def test_submit_failure_has_no_retry(response, error):
     with pytest.raises(error):
         await client.submit(contract, expected, 123, now=NOW)
     assert client.call.await_count == 2
+
+
+@pytest.mark.parametrize(
+    "failure", [ConnectionError("unavailable"), AuthenticationError("reauth_required")]
+)
+async def test_preflight_failure_allows_explicit_retry_without_false_uncertainty(failure):
+    client, contract = client_and_contract()
+    client.call = AsyncMock(return_value=target())
+    expected = await client.meter(contract)
+
+    async def write(window, value):
+        await client.submit(contract, window, value, now=NOW)
+
+    manager = SubmissionManager({}, AsyncMock(), AsyncMock(return_value=expected), write)
+    proposal = manager.proposal("123", "manual", NOW, expected)
+    client.call = AsyncMock(side_effect=failure)
+    with pytest.raises(GasError, match=f"^{failure}$"):
+        await manager.submit(proposal["id"], NOW, lambda *args: None)
+    assert manager.state[expected.cycle]["status"] == "not_sent"
+    assert "last_attempt_day" not in manager.state[expected.cycle]
+    assert [c.args[:2] for c in client.call.await_args_list] == [("GET", "indications")]
+
+    client.call = AsyncMock(side_effect=[target(), {"inputYn": "Y"}])
+    manager.query = AsyncMock(side_effect=[expected, expected])
+    # If the write acknowledgement has no receipt, it must still lock retries.
+    with pytest.raises(GasError, match="submission_uncertain"):
+        await manager.submit(proposal["id"], NOW, lambda *args: None)
+    with pytest.raises(GasError, match="submission_uncertain"):
+        manager.query = AsyncMock(return_value=expected)
+        await manager.submit(proposal["id"], NOW, lambda *args: None)
+    assert [c.args[:2] for c in client.call.await_args_list] == [
+        ("GET", "indications"),
+        ("POST", "relay/indications/input"),
+    ]
 
 
 @pytest.mark.parametrize("value", ["false", "N", "0", False, None])

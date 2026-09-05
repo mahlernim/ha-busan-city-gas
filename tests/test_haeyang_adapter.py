@@ -1,13 +1,16 @@
 """Synthetic Haeyang mobile-web protocol tests; no live customer requests."""
 
+from copy import deepcopy
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
 from custom_components.busan_city_gas import haeyang
 from custom_components.busan_city_gas.model import GasError
 from custom_components.busan_city_gas.portal import AuthenticationError
+from custom_components.busan_city_gas.submission import SubmissionManager
 from custom_components.busan_city_gas.submission_transport import (
     SubmissionNotSent,
     SubmissionUncertain,
@@ -115,6 +118,80 @@ async def test_bills_report_progress_like_every_other_adapter(wire):
     assert steps == [(["202608"], 1, 1)]
     assert client.history_errors == {contract.key: []}
     assert "202608" in bills
+
+
+@pytest.mark.parametrize("failure", ["unavailable", "invalid_detail"])
+async def test_detail_failure_retains_cached_detail_for_unchanged_summary(wire, failure):
+    client, responses, _ = wire
+    (contract,) = await client.contracts()
+    cached = await client.bills(contract)
+    original = deepcopy(cached)
+    if failure == "unavailable":
+        responses["BILL002"] = GasError("cannot_connect")
+    else:
+        # A malformed late field must not replace only part of the saved detail.
+        responses["BILL002"]["IT_TAB"][0].update(USE_PERIOD_FROM="20260711", CURR_INDCT="invalid")
+    result = await client.bills(contract, cached)
+    assert result == original
+    assert cached == original
+    assert client.history_errors[contract.key]
+
+
+async def test_failed_detail_does_not_attach_old_detail_to_changed_summary(wire):
+    client, responses, _ = wire
+    (contract,) = await client.contracts()
+    cached = await client.bills(contract)
+    responses["BILL001"]["IT_TAB"][0]["CONSUME_QTY"] = "10"
+    responses["BILL002"] = GasError("cannot_connect")
+    bill = (await client.bills(contract, cached))["202608"]
+    assert bill["reported_usage"] == "10"
+    assert bill["closing_reading"] is None
+    assert bill["period_start"] is None
+
+
+async def test_duplicate_bill_month_fails_before_publishing_partial_history(wire):
+    client, responses, calls = wire
+    (contract,) = await client.contracts()
+    cached = await client.bills(contract)
+    original = deepcopy(cached)
+    responses["BILL001"]["IT_TAB"].append(
+        {**responses["BILL001"]["IT_TAB"][0], "NOTICE_AMT": "999"}
+    )
+    calls.clear()
+    progress = []
+    with pytest.raises(GasError, match="duplicate_bill_month"):
+        await client.bills(contract, cached, progress=lambda *args: progress.append(args))
+    assert cached == original
+    assert not progress
+    assert not any(code == "BILL002" for code, _ in calls)
+
+
+async def test_preflight_read_failure_does_not_lock_unattempted_submission(wire):
+    client, responses, calls = wire
+    (contract,) = await client.contracts()
+    now = datetime(2026, 9, 7, tzinfo=timezone.utc)
+    expected = await client.meter(contract)
+
+    async def write(window, value):
+        await client.submit(contract, window, value, now=now)
+
+    manager = SubmissionManager({}, AsyncMock(), AsyncMock(return_value=expected), write)
+    proposal = manager.proposal("105", "manual", now, expected)
+    good = responses["SELF100"]
+    responses["SELF100"] = GasError("cannot_connect")
+    with pytest.raises(GasError, match="^cannot_connect$"):
+        await manager.submit(proposal["id"], now, lambda *args: None)
+    assert manager.state[expected.cycle]["status"] == "not_sent"
+    assert "last_attempt_day" not in manager.state[expected.cycle]
+    assert not any(code == "SELF101" for code, _ in calls)
+
+    responses["SELF100"] = good
+    # Recovery still requires an explicit submit and a matching receipt.
+    receipt = deepcopy(expected)
+    receipt.submitted = "105"
+    manager.query = AsyncMock(side_effect=[expected, receipt])
+    assert (await manager.submit(proposal["id"], now, lambda *args: None))["status"] == "confirmed"
+    assert sum(code == "SELF101" for code, _ in calls) == 1
 
 
 async def test_exact_write_dto_no_payer_or_fake_image(wire):

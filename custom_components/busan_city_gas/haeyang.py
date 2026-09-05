@@ -208,8 +208,12 @@ class HaeyangClient:
         result = dict(cached or {})
         errors = []
         entries = rows(payload)
+        months = [month(required(row, "YEARMONTH")) for row in entries]
+        if len(set(months)) != len(months):
+            # Validate before progress callbacks can persist an ambiguous month.
+            raise GasError("duplicate_bill_month")
         for completed, row in enumerate(entries, start=1):
-            key = month(required(row, "YEARMONTH"))
+            key = months[completed - 1]
             amount = number(row, "NOTICE_AMT")
             # Public FEE_COM0100.toCommaNumber multiplies SAP currency amounts by 100.
             amount = (
@@ -230,16 +234,30 @@ class HaeyangClient:
                         raise GasError("provider_schema_changed")
                     detail = details[0]
                     start, end = day(detail, "USE_PERIOD_FROM"), day(detail, "USE_PERIOD_TO")
-                    if start and end and start <= end:
-                        bill.period_start, bill.period_end = start, end
-                    bill.closing_reading = number(detail, "CURR_INDCT")
+                    if start and end and start > end:
+                        raise GasError("provider_date_invalid")
+                    closing = number(detail, "CURR_INDCT")
                     meter = text(detail, "INSTALLNO")
+                    usage = number(detail, "CONSUME_QTY")
+                    # Apply detail only after all fields have been validated.
+                    if start and end:
+                        bill.period_start, bill.period_end = start, end
+                    bill.closing_reading = closing
                     bill.meter_id = opaque(f"haeyang:{contract.cano}:{meter}") if meter else None
-                    bill.reported_usage = number(detail, "CONSUME_QTY") or bill.reported_usage
+                    bill.reported_usage = usage if usage is not None else bill.reported_usage
                 except AuthenticationError:
                     raise
                 except GasError as error:
                     errors.append(str(error))
+                    previous = result.get(key)
+                    if (
+                        previous
+                        and previous.get("amount") == bill.amount
+                        and previous.get("reported_usage") == bill.reported_usage
+                    ):
+                        # Retain last known detail only for an unchanged summary.
+                        # A revised amount/usage must not inherit stale readings.
+                        bill = Bill.load(previous)
             result[key] = bill.dump()
             if progress:
                 progress(result, completed, len(entries))
@@ -308,23 +326,26 @@ class HaeyangClient:
         )
 
     async def submit(self, contract, expected, value, *, now):
-        if now.tzinfo is None:
-            raise SubmissionNotSent("invalid_submission_time")
-        numeric = decimal(value)
-        fresh = await self.meter(contract)
-        if (
-            expected.private.get("account_key") != contract.key
-            or fresh.cycle != expected.cycle
-            or fresh.previous != expected.previous
-            or fresh.private["order"] != expected.private.get("order")
-            or not fresh.is_open(now.date())
-            or fresh.submitted is not None
-            or fresh.private.get("submission_blocked")
-            or numeric != int(numeric)
-            or numeric < decimal(fresh.previous)
-            or numeric > 99999999
-        ):
-            raise SubmissionNotSent("stale_proposal")
+        try:
+            if now.tzinfo is None:
+                raise GasError("invalid_submission_time")
+            numeric = decimal(value)
+            fresh = await self.meter(contract)
+            if (
+                expected.private.get("account_key") != contract.key
+                or fresh.cycle != expected.cycle
+                or fresh.previous != expected.previous
+                or fresh.private["order"] != expected.private.get("order")
+                or not fresh.is_open(now.date())
+                or fresh.submitted is not None
+                or fresh.private.get("submission_blocked")
+                or numeric != int(numeric)
+                or numeric < decimal(fresh.previous)
+                or numeric > 99999999
+            ):
+                raise GasError("stale_proposal")
+        except GasError as error:
+            raise SubmissionNotSent(str(error)) from None
         try:
             await self.call(
                 "SELF101",

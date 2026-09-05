@@ -16,6 +16,29 @@ test('estimation messages distinguish waiting, missing anchor and learning',()=>
  assert.match(context.modelLabel({estimation_method:'recent_physical'}),/최근 실측/);
 });
 const base = {window_start:'2026-09-13',window_end:'2026-09-18',today:'2026-09-02',submission_status:'not_submitted'};
+function renderRow(updates, admin = false) {
+ const panel = Object.create(context.Panel.prototype);
+ panel.rows = [{...base,key:'synthetic',entry_id:'test',notification:{},bills:[],history:[],...updates}];
+ panel._hass = {user:{is_admin:admin}};
+ panel.shadowRoot = {innerHTML:''};
+ panel.render();
+ return panel.shadowRoot.innerHTML;
+}
+test('partial history is visible without exposing raw adapter errors',()=>{
+ const html = renderRow({history_errors:['provider_schema_changed']});
+ assert.match(html,/일부 고지서 상세·검침 이력을 불러오지 못했습니다/);
+ assert.doesNotMatch(html,/provider_schema_changed/);
+ assert.doesNotMatch(renderRow({history_errors:[]}),/일부 고지서 상세·검침 이력/);
+});
+for (const [flag, action] of [['service_registration_required','register'],['channel_change_required','channel']]) {
+ test(`${action} is explained to recipients but actionable only by admins`,()=>{
+  const row = {provider_family:'gasapp',[flag]:true};
+  assert.match(renderRow(row,true),new RegExp(`data-action="${action}"`));
+  const html = renderRow(row,false);
+  assert.doesNotMatch(html,new RegExp(`data-action="${action}"`));
+  assert.match(html,/관리자에게/);
+ });
+}
 test('before window states exact available dates',()=>{
  const text=context.windowMessage({...base,window_status:'before'});
  assert.match(text,/오늘은.*제출 기간이 아닙니다/);
