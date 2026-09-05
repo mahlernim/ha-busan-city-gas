@@ -212,7 +212,7 @@ class BusanCityGasPanel extends HTMLElement {
       ${r.submission_proposed != null ? `<p>마지막 요청값 ${fmt(r.submission_proposed)} · ${esc(r.submission_attempted_at || "시각 미확인")}</p>` : ""}
       ${r.accepted_checked_at ? `<p class="muted">접수 상태 확인 시각 ${esc(r.accepted_checked_at)} · 이번 조회값 ${r.submission_observed != null ? fmt(r.submission_observed) : "미확인"}</p>` : ""}
       ${r.submission_status === "confirmed" && r.receipt_in_latest_read === false ? `<p class="warning">${esc(receiptMessage(r))}</p>` : ""}
-      ${r.provider_family === "gasapp" && (r.service_registration_required || r.channel_change_required) ? `<p>${esc(r.service_registration_required ? errors.service_registration_required : errors.channel_change_required)}</p><div class="actions">${r.service_registration_required ? button("register","자가검침 서비스 가입") : button("channel","가스앱으로 접수 채널 변경")}</div>` : ""}
+      ${r.provider_family === "gasapp" && (r.service_registration_required || r.channel_change_required) ? this._hass?.user?.is_admin ? `<p>${esc(r.service_registration_required ? errors.service_registration_required : errors.channel_change_required)}</p><div class="actions">${r.service_registration_required ? button("register","자가검침 서비스 가입") : button("channel","가스앱으로 접수 채널 변경")}</div>` : `<p>${r.service_registration_required ? "가스앱 자가검침 서비스 가입이 필요합니다." : "자가검침 접수 채널을 가스앱으로 변경해야 합니다."} Home Assistant 관리자에게 요청해 주세요.</p>` : ""}
       <div class="actions">${button("check",r.submission_checking ? "제출 내역 확인 중…" : "제출 내역 확인",r.submission_checking)}</div>
       <small>접수 내역만 조회합니다. 검침값 제출·재전송 및 고지서 재조회는 하지 않습니다.</small>
       ${r.submission_locked ? '<p class="warning">현재 제출 기능이 중지되어 있습니다. 필요한 자가검침은 홈페이지에서 직접 해주세요.</p>' : ""}
@@ -224,7 +224,7 @@ class BusanCityGasPanel extends HTMLElement {
       ${r.error ? `<p class="warning">공식 조회가 최신 상태가 아닙니다: ${esc(r.error)}</p>` : ""}<p class="muted">마지막 공식 조회 ${esc(r.last_refresh || "아직 없음")}</p>
       ${r.meter_error ? `<p class="warning">${esc(errorMessage({code:r.meter_error},r))}</p>` : ""}
       ${this._hass?.user?.is_admin ? '<a href="/config/integrations/integration/busan_city_gas">센서·알림·제출 설정 변경</a>' : ""}</section>
-      <section><h2>고지서 이력</h2><div class="scroll"><table><thead><tr><th>청구월</th><th>사용량</th><th>고지금액</th></tr></thead><tbody>${r.bills.map(b => `<tr><td>${esc(b.month)}</td><td>${fmt(b.usage)}</td><td>${fmt(b.amount,"원")}</td></tr>`).join("")}</tbody></table></div>
+      <section><h2>고지서 이력</h2>${r.history_errors?.length ? '<p class="warning">일부 고지서 상세·검침 이력을 불러오지 못했습니다. 표시된 요금과 보관된 기록을 확인하고 나중에 정보를 업데이트해 주세요. 누락된 자료가 있으면 추정이 제한될 수 있습니다.</p>' : ""}<div class="scroll"><table><thead><tr><th>청구월</th><th>사용량</th><th>고지금액</th></tr></thead><tbody>${r.bills.map(b => `<tr><td>${esc(b.month)}</td><td>${fmt(b.usage)}</td><td>${fmt(b.amount,"원")}</td></tr>`).join("")}</tbody></table></div>
       <details><summary>보정·제출 이력</summary>${r.history.slice(0,30).map(h => `<p>${esc(h.at)} · ${esc(({physical:"실측 보정",adjustment:"추정 조정",submitted:"제출",source_reset:"센서 초기화"})[h.kind] || h.kind)} ${h.value ? fmt(h.value) : ""}</p>`).join("") || '<p class="muted">아직 이력이 없습니다.</p>'}</details></section>
     ` : '<section>표시할 계약이 없습니다. 통합을 설정하거나 담당자 권한을 확인해 주세요.</section>'}</main>`;
     if(focusedId) this.shadowRoot.getElementById(focusedId)?.focus({preventScroll:true});

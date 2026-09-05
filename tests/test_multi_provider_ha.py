@@ -2,6 +2,7 @@
 
 from dataclasses import asdict
 from datetime import timedelta
+from inspect import signature
 from types import MappingProxyType
 from unittest.mock import AsyncMock, patch
 
@@ -9,6 +10,7 @@ import pytest
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.util import dt as dt_util
 
+from custom_components.busan_city_gas.clients import create_client
 from custom_components.busan_city_gas.config_flow import GasConfigFlow
 from custom_components.busan_city_gas.const import DEFAULT_OPTIONS, DOMAIN
 from custom_components.busan_city_gas.coordinator import AccountCoordinator
@@ -179,6 +181,23 @@ def test_partial_bill_never_invents_amount_heat_or_dates():
     assert Bill.load(bill.dump()) == bill
     result = forecast(Estimate(), [bill], MeterWindow("", "", "", ""), False, dt_util.now(), None)
     assert result["accrued_amount"] is None
+
+
+def test_every_adapter_matches_the_coordinator_call_signatures():
+    """The coordinator calls one shared shape; a family that drifts breaks refresh."""
+    session = None
+    credentials = {
+        **CREDS,
+        "username": "example",
+        "password": "private",
+        "energytalk_token": "test-session",
+    }
+    for provider in {p.family: p for p in PROVIDERS.values()}.values():
+        client = create_client(session, credentials, provider)
+        signature(client.bills).bind(CONTRACT, {}, progress=lambda *args: None)
+        signature(client.meter).bind(CONTRACT)
+        signature(client.contracts).bind()
+        signature(client.submit).bind(CONTRACT, None, 1, now=dt_util.now())
 
 
 def test_all_provider_families_offer_writes_without_validation_gate():
