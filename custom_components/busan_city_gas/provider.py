@@ -172,6 +172,13 @@ for _id, _name, _tenant in (
     ("gyeongnam", "경남에너지", "kne"),
     ("seorabeol", "서라벌도시가스", "srb"),
     ("gse", "지에스이", "gse"),
+    ("kiturami_energytalk", "귀뚜라미에너지 (에너지톡)", "ktrm"),
+    ("seohae_energytalk", "미래엔서해에너지 (에너지톡)", "miraense"),
+    ("chambit_wonju_energytalk", "참빛원주도시가스 (에너지톡)", "cwjgas"),
+    ("chambit_chungbuk_energytalk", "참빛충북도시가스 (에너지톡)", "ccbgas"),
+    ("chambit_yeongdong_energytalk", "참빛영동도시가스 (에너지톡)", "cydgas"),
+    ("chambit_donghae_energytalk", "참빛영동도시가스 동해지점 (에너지톡)", "cdhgas"),
+    ("chambit_sokcho_energytalk", "참빛속초도시가스 (에너지톡)", "cscgas"),
 ):
     PROVIDERS[_id] = Provider(
         _id,

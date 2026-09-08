@@ -53,7 +53,7 @@ class GasappClient:
             "Origin": "https://app.gasapp.co.kr",
             "Referer": "https://app.gasapp.co.kr/",
             "X-VERSION": "11.5.1505",
-            "X-WEBVERSION": "6.10.548",
+            "X-WEBVERSION": "6.10.549",
             "X-PLATFORM": "android",
             "User-Agent": "WunderFlo Appstore/11.5.1505",
             "X-TOKEN": self.data.get("gasapp_token", ""),

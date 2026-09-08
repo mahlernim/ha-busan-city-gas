@@ -201,7 +201,7 @@ def test_every_adapter_matches_the_coordinator_call_signatures():
 
 
 def test_all_provider_families_offer_writes_without_validation_gate():
-    assert len(PROVIDERS) == 30
+    assert len(PROVIDERS) == 37
     assert all(p.supports_submission for p in PROVIDERS.values())
     assert sum(len(p.company_codes) for p in PROVIDERS.values()) == 18
 
@@ -279,7 +279,9 @@ async def test_missing_meter_identity_does_not_invalidate_calibration(hass):
         await runtime.shutdown()
 
 
-@pytest.mark.parametrize("provider_id", ["cncity", "gyeongnam", "seorabeol", "gse"])
+@pytest.mark.parametrize(
+    "provider_id", [p.id for p in PROVIDERS.values() if p.family == "energytalk"]
+)
 async def test_energytalk_provider_specific_setup_and_reauth_metadata(hass, provider_id):
     flow = GasConfigFlow()
     flow.hass, flow.context = hass, {"source": "user"}

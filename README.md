@@ -19,13 +19,17 @@
 
 <p align="center"><a href="docs/installation.md">설치하기</a> · <a href="docs/providers.md">지원 공급사</a> · <a href="docs/usage.md">사용법</a> · <a href="docs/troubleshooting.md">문제 해결</a> · <a href="docs/feedback.md">문의·제안</a></p>
 
+<p align="center"><a href="#지원-공급사">한국어</a> · <a href="#english">English</a></p>
+
 지난달 가스요금이 얼마였는지 확인하고, 지금까지 얼마나 썼는지 살펴보고, 자가검침까지 Home Assistant에서 처리하세요.
 
 **똑똑 자가검침 AI**는 가스요금 조회, 검침값 추정과 보정, 자가검침 제출을 함께 처리하는 비공식 Home Assistant 통합입니다. 별도 대시보드 없이 전용 화면에서 사용하세요.
 
 ## 지원 공급사
 
-**30개 공급사 항목**을 선택할 수 있습니다: SK E&S 8개 지역, 가스앱 14개 브랜드, 삼천리, 에너지톡 4개 공급사, 대성에너지·대성청정에너지, 해양에너지입니다. 가스앱에는 서울도시가스·예스코·인천도시가스·경동도시가스 등이 포함됩니다. 참빛 계열은 한 선택 항목에 5개 회사 코드를 포함합니다. [공급사별 기능](docs/providers.md)
+SK E&S 8개 지역, 가스앱 14개 브랜드, 삼천리, 에너지톡, 대성에너지·대성청정에너지, 해양에너지를 연결할 수 있습니다. 가스앱에는 서울도시가스·예스코·인천도시가스·경동도시가스 등이 포함됩니다. [공급사별 기능](docs/providers.md)
+
+이 브랜치는 **37개 공급사·연결 채널 항목**을 제공합니다. v0.6.2의 30개 항목에 귀뚜라미·미래엔서해·참빛 계열의 에너지톡 연결 7개를 추가한 것으로, 새 공급사 7곳을 뜻하지 않습니다. 에너지톡은 참빛의 지역별 서비스를 포함해 11개 연결을 선택합니다. 추가 연결은 차기 릴리스에 포함될 예정이며 현재 HACS 배포본에는 아직 없습니다.
 
 SK E&S 외 새 공급사 연결은 **실험적 지원**이며 실제 사용자 계정에서 테스트할 수 있도록 조회와 제출 경로를 제공합니다. 공개 프로토콜과 합성 응답으로 개발했으므로 계약별 차이가 있을 수 있습니다. 자동 제출은 기본 꺼짐이며, 처음에는 직접 제출 후 공급사에서 접수값을 확인하세요. 예상요금 계산은 현재 SK E&S만 지원하고 다른 공급사는 제공되는 확정 요금·사용량을 표시합니다.
 
@@ -96,3 +100,23 @@ HACS가 설정되어 있다면 위 버튼을 누르세요. 처음에는 사용�
 - [개인정보·권한 안내](docs/privacy.md) · [업데이트 내용](CHANGELOG.md) · [라이선스](LICENSE)
 
 코드로 기여하고 싶다면 [개발 참여 안내](CONTRIBUTING.md)를 참고해 주세요.
+
+## English
+
+**똑똑 자가검침 AI** is an unofficial Home Assistant integration for Korean city-gas billing, meter estimates, physical calibration, and self-reading submission. It supports eight SK E&S regions, 14 Gasapp brands, Samchully, EnergyTalk, Daesung Energy, Daesung Clean Energy, and Haeyang Energy. Connections outside SK E&S are experimental and have not been verified with every supplier's customer accounts.
+
+This branch offers 37 supplier and connection-channel choices. Seven additional EnergyTalk choices cover Kiturami, Mirae N Seohae, and five Chambit services already represented through Gasapp. They are alternate connections, not seven new suppliers, and are not yet available in the v0.6.2 HACS release. Existing Gasapp entries keep their current connection and history.
+
+### Installation and first use
+
+Home Assistant 2026.7.4 or later and HACS are required for HACS installation. Add this repository as a custom integration repository, download the integration, and restart Home Assistant. Then open **Settings → Devices & services → Add integration → 똑똑 자가검침 AI**. This repository is not in the default HACS catalog.
+
+Choose the supplier shown on your bill. Depending on the supplier, connect with website credentials, Gasapp SMS verification, or an existing EnergyTalk session token. EnergyTalk users sign in on the official site, select their address, and copy only the bearer token from an `/api/fetch` request into the masked token field. Renew the connection through HA reauthentication when it expires. Do not share the token in issues or screenshots.
+
+Select your contract, optionally connect a raw cumulative gas sensor in m³, and enter the physical meter reading. A sensor is optional. Available official history can support estimation, but missing billing periods, heat factors, or tariffs limit usage and cost forecasts.
+
+### Submission and updates
+
+Manual submission requires confirmation. Automatic submission is opt-in and starts disabled. EnergyTalk exposes current permission rather than a future deadline, so it has no built-in last-day submission schedule. Acknowledgements are checked against the supplier's recorded reading, and uncertain outcomes are not automatically retried.
+
+Install future updates through HACS and restart Home Assistant. Existing entries do not need to be deleted or recreated. The domain remains `busan_city_gas`. Estimates are informational, and the integration does not make payments or control gas valves. For support, open an issue with the supplier, failing step, and redacted error message. See the [installation guide](docs/installation.md), [supplier details](docs/providers.md), and [privacy information](docs/privacy.md).

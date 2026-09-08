@@ -14,7 +14,7 @@ from custom_components.busan_city_gas.portal import (
     Contract,
     opaque,
 )
-from custom_components.busan_city_gas.provider import Provider
+from custom_components.busan_city_gas.provider import PROVIDERS, Provider
 from custom_components.busan_city_gas.submission_transport import (
     SubmissionNotSent,
     SubmissionRejected,
@@ -245,6 +245,67 @@ async def test_proxy_transport_uses_observed_envelope(monkeypatch):
         "body": {},
     }
     assert transport.await_args.kwargs["headers"]["Authorization"] == "Bearer synthetic-token"
+
+
+def test_every_energytalk_tenant_is_selectable_without_replacing_gasapp():
+    from custom_components.busan_city_gas.energytalk import TENANTS
+
+    selected = [p for p in PROVIDERS.values() if p.family == "energytalk"]
+    assert {p.path for p in selected} == TENANTS
+    assert len(selected) == len(TENANTS)
+    assert all(not p.supports_deadline for p in selected)
+    for key in ("kiturami", "seohae", "chambit"):
+        assert PROVIDERS[key].family == "gasapp"
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [{"responseCode": code} for code in ("no-token", "expired-token", "invalid-token")]
+    + [AuthenticationError("reauth_required")],
+)
+async def test_expired_session_stops_calls_until_new_client(monkeypatch, failure):
+    client, _ = setup()
+    transport = AsyncMock(side_effect=[failure, info()])
+    monkeypatch.setattr("custom_components.busan_city_gas.energytalk.request", transport)
+    for _ in range(2):
+        with pytest.raises(AuthenticationError, match="reauth_required"):
+            await client.identity()
+    with pytest.raises(AuthenticationError):
+        await client.post_reading("123")
+    assert transport.await_count == 1
+    renewed, _ = setup()
+    assert await renewed.identity() == info()
+    assert transport.await_count == 2
+
+
+async def test_transient_failure_does_not_expire_session(monkeypatch):
+    client, _ = setup()
+    transport = AsyncMock(side_effect=[ConnectionError("offline"), info()])
+    monkeypatch.setattr("custom_components.busan_city_gas.energytalk.request", transport)
+    with pytest.raises(ConnectionError):
+        await client.identity()
+    assert await client.identity() == info()
+
+
+@pytest.mark.parametrize("status,code", [(401, "ok"), (403, "ok"), (200, "expired-token")])
+async def test_write_auth_failure_stops_followup_transport(status, code):
+    from unittest.mock import Mock
+
+    client, _ = setup()
+    client.session = Mock()
+    response = Response()
+    response.status = status
+
+    async def chunks(size):
+        yield ('{"responseCode":"' + code + '"}').encode()
+
+    response.iter_chunked = chunks
+    client.session.request.return_value = response
+    with pytest.raises(AuthenticationError):
+        await client.post_reading("123")
+    with pytest.raises(AuthenticationError):
+        await client.identity()
+    assert client.session.request.call_count == 1
 
 
 class Response:
