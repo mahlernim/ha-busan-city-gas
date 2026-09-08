@@ -84,6 +84,7 @@ class EnergyTalkClient:
     def __init__(self, session, data, provider):
         self.session, self.data, self.provider = session, data, provider
         self.history_errors, self.readings = {}, {}
+        self.auth_expired = False
         if provider.path not in TENANTS:
             raise GasError("unsupported_provider")
         token = data.get("energytalk_token", "")
@@ -104,16 +105,24 @@ class EnergyTalkClient:
     async def call(self, method, path, body=None):
         if not (method == "GET" and path in READS or method == "POST" and path == CHECK):
             raise GasError("unsupported_operation")
-        return envelope(
-            await request(
-                self.session,
-                "POST",
-                BASE + "/api/fetch",
-                headers=self.headers,
-                body={"method": method, "url": path, "body": body or {}},
-                stage="meter" if "meter" in path else "query",
+        if self.auth_expired:
+            raise AuthenticationError("reauth_required")
+        try:
+            return envelope(
+                await request(
+                    self.session,
+                    "POST",
+                    BASE + "/api/fetch",
+                    headers=self.headers,
+                    body={"method": method, "url": path, "body": body or {}},
+                    stage="meter" if "meter" in path else "query",
+                )
             )
-        )
+        except AuthenticationError:
+            # Imported sessions cannot refresh themselves. A new client created
+            # after reauthentication is the only way to resume provider calls.
+            self.auth_expired = True
+            raise
 
     async def identity(self):
         info = await self.call("GET", "/gas/api/user/info")
@@ -251,6 +260,8 @@ class EnergyTalkClient:
         envelope(response)
 
     async def post_reading(self, value):
+        if self.auth_expired:
+            raise AuthenticationError("reauth_required")
         form = aiohttp.FormData(default_to_multipart=True)
         form.add_field("guideline", value)
         headers = {
@@ -267,6 +278,9 @@ class EnergyTalkClient:
                 allow_redirects=False,
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as response:
+                if response.status in (401, 403):
+                    self.auth_expired = True
+                    raise AuthenticationError("reauth_required")
                 if not 200 <= response.status < 300:
                     raise GasError("provider_meter_http_error")
                 data = bytearray()
@@ -275,8 +289,16 @@ class EnergyTalkClient:
                     if len(data) > 4_000_000:
                         raise GasError("provider_response_too_large")
                 try:
-                    return json.loads(data)
+                    payload = json.loads(data)
                 except (ValueError, UnicodeError):
                     raise GasError("provider_schema_changed") from None
+                if isinstance(payload, dict) and payload.get("responseCode") in (
+                    "no-token",
+                    "expired-token",
+                    "invalid-token",
+                ):
+                    self.auth_expired = True
+                    raise AuthenticationError("reauth_required")
+                return payload
         except (aiohttp.ClientError, asyncio.TimeoutError):
             raise ConnectionError("provider_meter_connection_failed") from None

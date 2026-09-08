@@ -32,7 +32,11 @@ Monthly usage comes from `/gas/api/pay/usage`: `list` entries contain `dateVal` 
 
 ## Tenant coverage
 
-The shared adapter supports cncity, kne, ktrm, miraense, srb, gse, cwjgas, ccbgas, cydgas, cdhgas, cscgas. Main provider selection uses EnergyTalk for the unique suppliers; overlapping Gasapp suppliers can use their existing channel.
+The shared adapter supports cncity, kne, ktrm, miraense, srb, gse, cwjgas, ccbgas, cydgas, cdhgas, cscgas. Provider selection exposes all eleven tenants, including seven explicitly labelled alternate EnergyTalk connections for overlapping Gasapp suppliers. Existing Gasapp IDs, account keys and histories are unchanged.
+
+An explicit expired-token envelope or authentication HTTP failure latches the client into reauthentication-required state. Subsequent requests stop until a new client is created after reauthentication. Ordinary network errors do not expire the session. Submission-time failures retain the existing uncertain-result handling.
+
+Public frontend rechecked on 2026-09-09. The official multipart helper still sets `X-Backend-Method` and URI-encoded `X-Backend-Url` headers, so this transport is retained. No authenticated request or reading submission was performed.
 
 ## Sources and reproducibility
 
