@@ -28,17 +28,19 @@ async def test_shutdown_disconnect_preserves_last_valid_checkpoint(hass, stop_st
         await runtime.shutdown()
 
 
-async def test_running_disconnect_still_requires_calibration(hass):
+async def test_running_disconnect_waits_without_extending_on_shutdown(hass):
     hass.states.async_set("sensor.gas_meter", "100")
     runtime = await make_runtime(hass, {"source_entity": "sensor.gas_meter"})
     try:
         await runtime.calibrate(CONTRACT.key, "35")
         hass.states.async_set("sensor.gas_meter", "unavailable")
         await hass.async_block_till_done()
-        assert runtime.estimates[CONTRACT.key].gap
+        assert not runtime.estimates[CONTRACT.key].gap
+        deadline = runtime.startup_deadlines[CONTRACT.key]
         hass.set_state(CoreState.stopping)
         runtime.observe(CONTRACT.key)
-        assert runtime.estimates[CONTRACT.key].gap
+        assert not runtime.estimates[CONTRACT.key].gap
+        assert runtime.startup_deadlines[CONTRACT.key] == deadline
     finally:
         hass.set_state(CoreState.not_running)
         await runtime.shutdown()

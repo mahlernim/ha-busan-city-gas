@@ -165,12 +165,26 @@ class AccountCoordinator(DataUpdateCoordinator):
             state = self.hass.states.get(source)
             now = dt_util.now()
             raw = state.state if state and not state.attributes.get("restored") else None
+            try:
+                decimal(raw)
+                valid = True
+            except GasError:
+                valid = False
+            estimate = self.estimates[key]
+            # A brief transport disconnect can recover the cumulative cursor.
+            # Reuse the bounded restart grace, anchored to the last valid sample
+            # so repeated unavailable events and reloads cannot extend it.
+            if (
+                not valid
+                and key not in self.startup_deadlines
+                and not estimate.gap
+                and estimate.source_last is not None
+                and estimate.source_at
+            ):
+                source_at = datetime.fromisoformat(estimate.source_at)
+                if source_at <= now:
+                    self.startup_deadlines[key] = source_at + timedelta(seconds=120)
             if deadline := self.startup_deadlines.get(key):
-                try:
-                    decimal(raw)
-                    valid = True
-                except GasError:
-                    valid = False
                 if now < deadline and not valid:
                     source_at = datetime.fromisoformat(self.estimates[key].source_at)
                     for affected in {source_at.date(), now.date()}:
