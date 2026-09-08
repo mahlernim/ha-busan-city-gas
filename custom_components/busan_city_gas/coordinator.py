@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 
 import aiohttp
 from homeassistant.components import persistent_notification
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
@@ -63,6 +64,7 @@ class AccountCoordinator(DataUpdateCoordinator):
         self.receipt_tasks = {}
         self.models = {}
         self.startup_deadlines = {}
+        self._closing = False
 
     def options(self, key):
         options = {**DEFAULT_OPTIONS, **self.entry.options.get("contracts", {}).get(key, {})}
@@ -139,6 +141,7 @@ class AccountCoordinator(DataUpdateCoordinator):
                 self.removers.append(async_track_state_change_event(self.hass, source, on_source))
         self.removers.extend(
             [
+                self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, self._stop_observing),
                 async_track_time_interval(self.hass, self.tick, timedelta(minutes=1)),
                 self.hass.bus.async_listen(
                     "mobile_app_notification_action", self.notification_action
@@ -155,10 +158,16 @@ class AccountCoordinator(DataUpdateCoordinator):
         self.async_update_listeners()
         self.hass.bus.async_fire(EVENT_UPDATED, {"entry_id": self.entry.entry_id})
 
+    @callback
+    def _stop_observing(self, event):
+        # ESPHome disconnects at CLOSE, when HA is already NOT_RUNNING and
+        # is_stopping is false. Remember STOP through the remaining phases.
+        self._closing = True
+
     def observe(self, key):
         # Shutdown disconnects are expected; keep the last valid timestamp so
         # restart grace still expires from that checkpoint, never from shutdown.
-        if self.hass.is_stopping:
+        if self._closing or self.hass.is_stopping:
             return
         source = self.options(key)["source_entity"]
         if source:
@@ -223,6 +232,8 @@ class AccountCoordinator(DataUpdateCoordinator):
 
     async def source_changed(self, key):
         async with self.action_lock:
+            if self._closing:
+                return
             self.observe(key)
             self.changed()
             # Cursor and estimate are stored together. Debounce source-only writes;
@@ -841,7 +852,7 @@ class AccountCoordinator(DataUpdateCoordinator):
         await self.send_message(key, "가스 검침 확인 필요", message, kind="error")
 
     async def tick(self, now):
-        if self.tick_lock.locked():
+        if self._closing or self.tick_lock.locked():
             return
         async with self.tick_lock:
             local = dt_util.as_local(now)
@@ -911,6 +922,7 @@ class AccountCoordinator(DataUpdateCoordinator):
             self.changed()
 
     async def shutdown(self):
+        self._closing = True
         if self.initial_refresh_task and not self.initial_refresh_task.done():
             self.initial_refresh_task.cancel()
             await asyncio.gather(self.initial_refresh_task, return_exceptions=True)
