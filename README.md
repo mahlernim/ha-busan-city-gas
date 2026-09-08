@@ -29,7 +29,7 @@
 
 SK E&S 8개 지역, 가스앱 14개 브랜드, 삼천리, 에너지톡, 대성에너지·대성청정에너지, 해양에너지를 연결할 수 있습니다. 가스앱에는 서울도시가스·예스코·인천도시가스·경동도시가스 등이 포함됩니다. [공급사별 기능](docs/providers.md)
 
-이 브랜치는 **37개 공급사·연결 채널 항목**을 제공합니다. v0.6.2의 30개 항목에 귀뚜라미·미래엔서해·참빛 계열의 에너지톡 연결 7개를 추가한 것으로, 새 공급사 7곳을 뜻하지 않습니다. 에너지톡은 참빛의 지역별 서비스를 포함해 11개 연결을 선택합니다. 추가 연결은 차기 릴리스에 포함될 예정이며 현재 HACS 배포본에는 아직 없습니다.
+**37개 공급사·연결 채널 항목**을 제공합니다. 귀뚜라미·미래엔서해·참빛 계열은 가스앱 또는 에너지톡 연결을 선택할 수 있습니다. 에너지톡은 참빛의 지역별 서비스를 포함해 11개 연결을 제공합니다. 같은 공급사의 다른 연결 채널을 포함한 수입니다.
 
 SK E&S 외 새 공급사 연결은 **실험적 지원**이며 실제 사용자 계정에서 테스트할 수 있도록 조회와 제출 경로를 제공합니다. 공개 프로토콜과 합성 응답으로 개발했으므로 계약별 차이가 있을 수 있습니다. 자동 제출은 기본 꺼짐이며, 처음에는 직접 제출 후 공급사에서 접수값을 확인하세요. 예상요금 계산은 현재 SK E&S만 지원하고 다른 공급사는 제공되는 확정 요금·사용량을 표시합니다.
 
@@ -105,7 +105,7 @@ HACS가 설정되어 있다면 위 버튼을 누르세요. 처음에는 사용�
 
 **똑똑 자가검침 AI** is an unofficial Home Assistant integration for Korean city-gas billing, meter estimates, physical calibration, and self-reading submission. It supports eight SK E&S regions, 14 Gasapp brands, Samchully, EnergyTalk, Daesung Energy, Daesung Clean Energy, and Haeyang Energy. Connections outside SK E&S are experimental and have not been verified with every supplier's customer accounts.
 
-This branch offers 37 supplier and connection-channel choices. Seven additional EnergyTalk choices cover Kiturami, Mirae N Seohae, and five Chambit services already represented through Gasapp. They are alternate connections, not seven new suppliers, and are not yet available in the v0.6.2 HACS release. Existing Gasapp entries keep their current connection and history.
+There are 37 supplier and connection-channel choices. Kiturami, Mirae N Seohae, and five Chambit services offer alternate EnergyTalk connections alongside Gasapp. EnergyTalk covers eleven services in total. Existing Gasapp entries keep their current connection and history.
 
 ### Installation and first use
 
