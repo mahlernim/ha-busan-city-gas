@@ -9,6 +9,8 @@
 
 <p align="center">가스요금 조회부터 실시간 검침 추정, 보정과 자가검침 제출까지</p>
 
+<p align="center">View Korean city gas bills, estimate meter readings, and submit self-readings with supported providers in Home Assistant.</p>
+
 <p align="center">
   <a href="https://github.com/mahlernim/ha-busan-city-gas/releases/latest"><img src="https://img.shields.io/github/v/release/mahlernim/ha-busan-city-gas?style=flat-square&amp;label=version" alt="최신 버전"></a>
   <a href="docs/installation.md"><img src="https://img.shields.io/badge/Home%20Assistant-2026.7.4%2B-18BCF2?style=flat-square&amp;logo=homeassistant&amp;logoColor=white" alt="Home Assistant 2026.7.4 이상"></a>
