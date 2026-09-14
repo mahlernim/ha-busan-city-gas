@@ -72,7 +72,10 @@ async def test_submission_exact_numeric_fallback_and_two_preflights(wire):
     client, responses, calls = wire
     (contract,) = await client.contracts()
     meter = await client.meter(contract)
-    await client.submit(contract, meter, 125, now=datetime(2026, 9, 4, tzinfo=timezone.utc))
+    acknowledgement = await client.submit(
+        contract, meter, 125, now=datetime(2026, 9, 4, tzinfo=timezone.utc)
+    )
+    assert acknowledgement.matcher == "retcd_s_e"
     validation = [args["body"] for path, args in calls if path == "validation-tidnr"]
     assert [row["I_GUBUN"] for row in validation] == ["1", "2"]
     assert validation[1]["I_ZWSTAND"] == "125"

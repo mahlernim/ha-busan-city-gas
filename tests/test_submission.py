@@ -1,10 +1,18 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock
 
 import pytest
 
 from custom_components.busan_city_gas.model import GasError, MeterWindow
 from custom_components.busan_city_gas.submission import SubmissionManager
+from custom_components.busan_city_gas.submission_transport import (
+    INPUT_Y_N,
+    RESULT_Y_N,
+    SubmissionAcknowledgement,
+    SubmissionRejected,
+    match_submission_acknowledgement,
+)
 
 NOW = datetime(2026, 9, 18, 22, tzinfo=timezone.utc)
 
@@ -64,6 +72,51 @@ async def test_ambiguous_response_no_retry_even_after_restart():
     assert len(calls) == 1
     window.submitted = "35"
     assert await manager2.reconcile(window, NOW)
+
+
+async def test_provider_acknowledgement_completes_before_readback_and_survives_restart():
+    state, writes = {}, []
+    window = MeterWindow("2026-09-13", "2026-09-18", "27", "meter", eligible=True)
+
+    async def write(_window, value):
+        writes.append(value)
+        return SubmissionAcknowledgement("result_y_n")
+
+    manager = SubmissionManager(state, AsyncMock(), AsyncMock(return_value=window), write)
+    proposal = manager.proposal("35", "manual", NOW, window)
+    result = await manager.submit(proposal["id"], NOW, lambda *_: None)
+    assert result["status"] == "confirmed"
+    assert result["accepted"] == "35"
+    assert result["confirmation_source"] == "provider_response"
+    assert result["acknowledgement_matcher"] == "result_y_n"
+    assert result["receipt_in_latest_read"] is False
+
+    restored = SubmissionManager(state, AsyncMock(), AsyncMock(return_value=window), write)
+    again = restored.proposal("35", "manual", NOW, window)
+    assert (await restored.submit(again["id"], NOW, lambda *_: None))["status"] == "confirmed"
+    assert writes == [35]
+
+    window.submitted = "35"
+    assert await restored.reconcile(window, NOW)
+    assert state[window.cycle]["confirmation_source"] == "readback"
+    assert state[window.cycle]["acknowledgement_matcher"] == "result_y_n"
+
+
+def test_known_acknowledgement_matchers_ignore_missing_unknown_and_conflicting_signals():
+    assert match_submission_acknowledgement({}, (RESULT_Y_N, INPUT_Y_N)) is None
+    assert (
+        match_submission_acknowledgement(
+            {"result": "unknown", "inputYn": " y "}, (RESULT_Y_N, INPUT_Y_N)
+        ).matcher
+        == "input_yn"
+    )
+    assert (
+        match_submission_acknowledgement({"result": "Y", "inputYn": "N"}, (RESULT_Y_N, INPUT_Y_N))
+        is None
+    )
+    assert match_submission_acknowledgement({"result": True}, (RESULT_Y_N,)) is None
+    with pytest.raises(SubmissionRejected, match="submission_rejected"):
+        match_submission_acknowledgement({"result": " n "}, (RESULT_Y_N,))
 
 
 async def test_already_submitted_reports_real_value():

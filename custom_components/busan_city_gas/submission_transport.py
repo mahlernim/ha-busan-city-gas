@@ -1,12 +1,14 @@
-"""Observed portal wire contract. Production remains gated in PortalClient.
+"""Observed submission wire contracts and provider acknowledgement matchers.
 
 No payload, member name or address is persisted or included in exceptions.
-The browser's Y acknowledgement is NOT proof of a matching registered reading.
+Only provider-scoped business acknowledgements count as registration; transport
+success alone does not. A later matching readback remains stronger evidence.
 """
 
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import datetime
 
 import aiohttp
@@ -28,6 +30,55 @@ class SubmissionRejected(GasError):
 
 class SubmissionUncertain(GasError):
     """A write may have happened. Never retry the POST automatically."""
+
+
+@dataclass(frozen=True)
+class SubmissionAcknowledgement:
+    """A provider explicitly accepted a submission through a known matcher."""
+
+    matcher: str
+
+
+@dataclass(frozen=True)
+class SubmissionAckMatcher:
+    """Known response field and its provider-specific business outcomes."""
+
+    name: str
+    field: str
+    accepted: frozenset[str]
+    rejected: frozenset[str]
+
+
+RESULT_Y_N = SubmissionAckMatcher("result_y_n", "result", frozenset({"Y"}), frozenset({"N"}))
+INPUT_Y_N = SubmissionAckMatcher("input_yn", "inputYn", frozenset({"Y"}), frozenset({"N"}))
+RESPONSE_CODE_OK_FAIL = SubmissionAckMatcher(
+    "response_code_ok_fail", "responseCode", frozenset({"OK"}), frozenset({"FAIL"})
+)
+RETCD_S_E = SubmissionAckMatcher("retcd_s_e", "E_RETCD", frozenset({"S"}), frozenset({"E"}))
+
+
+def match_submission_acknowledgement(
+    payload: object, matchers: tuple[SubmissionAckMatcher, ...]
+) -> SubmissionAcknowledgement | None:
+    """Use a known matching signal; ignore absent, unknown, or conflicting signals."""
+    if not isinstance(payload, dict):
+        return None
+    matches: list[tuple[bool, SubmissionAckMatcher]] = []
+    for matcher in matchers:
+        value = payload.get(matcher.field)
+        if not isinstance(value, str):
+            continue
+        normalized = value.strip().upper()
+        if normalized in matcher.accepted:
+            matches.append((True, matcher))
+        elif normalized in matcher.rejected:
+            matches.append((False, matcher))
+    if not matches or len({accepted for accepted, _ in matches}) != 1:
+        return None
+    accepted, matcher = matches[0]
+    if not accepted:
+        raise SubmissionRejected("submission_rejected")
+    return SubmissionAcknowledgement(matcher.name)
 
 
 def build_payload(
@@ -97,7 +148,7 @@ async def send_once(
     timeout: float = 25,
     form_path: str = FORM_PATH,
     submit_path: str = SUBMIT_PATH,
-) -> None:
+) -> SubmissionAcknowledgement | None:
     """One form POST, no redirects, login replay or retry of any kind."""
     try:
         async with session.post(
@@ -122,12 +173,8 @@ async def send_once(
                 result = json.loads(raw)
             except (ValueError, UnicodeError):
                 raise SubmissionUncertain("submission_uncertain") from None
-            if not isinstance(result, dict) or not isinstance(result.get("result"), str):
+            if not isinstance(result, dict):
                 raise SubmissionUncertain("submission_uncertain")
-            status = result["result"].strip()
-            if status == "N":
-                raise SubmissionRejected("submission_rejected")
-            if status != "Y":
-                raise SubmissionUncertain("submission_uncertain")
+            return match_submission_acknowledgement(result, (RESULT_Y_N,))
     except (aiohttp.ClientError, TimeoutError):
         raise SubmissionUncertain("submission_uncertain") from None

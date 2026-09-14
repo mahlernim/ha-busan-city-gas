@@ -51,6 +51,7 @@ test('expired, unknown and ineligible are distinct',()=>{
 });
 test('confirmed versus uncertain does not falsely claim failure',()=>{
  assert.match(context.windowMessage({...base,submission_status:'confirmed',accepted:'35'}),/다시 제출할 필요가 없습니다/);
+ assert.match(context.windowMessage({...base,submission_status:'confirmed',accepted:'35',confirmation_source:'provider_response'}),/등록 완료로 응답/);
  const text=context.windowMessage({...base,submission_status:'uncertain'});
  assert.match(text,/성공 또는 실패가 확정되지/);
  assert.match(text,/다시 전송하지 않습니다/);
@@ -78,6 +79,7 @@ test('receipt-only results distinguish missing, confirmed and disappearing recor
  assert.match(context.receiptMessage({...base}),/전송하거나 재전송하지 않았습니다/);
  assert.match(context.receiptMessage({...base,submission_status:'confirmed',accepted:'35',receipt_in_latest_read:true}),/접수 확인: 35/);
  assert.match(context.receiptMessage({...base,submission_status:'confirmed',accepted:'35',receipt_in_latest_read:false}),/이번 조회에는 접수값이 없어/);
+ assert.match(context.receiptMessage({...base,submission_status:'confirmed',accepted:'35',confirmation_source:'provider_response',receipt_in_latest_read:false}),/등록 완료로 응답한 기록/);
  assert.match(context.receiptMessage({...base,submission_observed:'35'}),/덮어쓰지 않았습니다/);
 });
 test('receipt check action never requests a proposal, calibration or submission',async()=>{

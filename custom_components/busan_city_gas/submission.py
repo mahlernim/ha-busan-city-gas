@@ -8,7 +8,11 @@ from datetime import datetime, timedelta
 from typing import Awaitable, Callable
 
 from .model import GasError, MeterWindow, decimal
-from .submission_transport import SubmissionNotSent, SubmissionRejected
+from .submission_transport import (
+    SubmissionAcknowledgement,
+    SubmissionNotSent,
+    SubmissionRejected,
+)
 
 
 class SubmissionManager:
@@ -17,7 +21,7 @@ class SubmissionManager:
         state: dict,
         persist: Callable[[], Awaitable[None]],
         query: Callable[[], Awaitable[MeterWindow]],
-        write: Callable[[MeterWindow, int], Awaitable[None]],
+        write: Callable[[MeterWindow, int], Awaitable[SubmissionAcknowledgement | None]],
         *,
         enabled: bool = True,
     ):
@@ -60,7 +64,12 @@ class SubmissionManager:
                 self.state[window.cycle] = cycle
                 await self.persist()
                 return False
-            cycle.update(status="confirmed", accepted=window.submitted, checked_at=now.isoformat())
+            cycle.update(
+                status="confirmed",
+                accepted=window.submitted,
+                checked_at=now.isoformat(),
+                confirmation_source="readback",
+            )
             cycle.pop("error", None)
             self.state[window.cycle] = cycle
             await self.persist()
@@ -123,8 +132,9 @@ class SubmissionManager:
             cycle.pop("error", None)
             await self.persist()  # Crash-safe write-ahead intent, before network.
             write_error = None
+            acknowledgement = None
             try:
-                await self.write(window, proposal["value"])
+                acknowledgement = await self.write(window, proposal["value"])
             except SubmissionNotSent as error:
                 cycle.update(status="not_sent", error=str(error))
                 cycle.pop("last_attempt_day", None)
@@ -136,15 +146,27 @@ class SubmissionManager:
                 raise
             except Exception as error:
                 write_error = error
-            # Even a lost acknowledgement may have committed. Query once, never
-            # re-POST. Keep pending/uncertain durable if this task is interrupted.
-            cycle.update(status="uncertain", error="submission_uncertain")
+            if isinstance(acknowledgement, SubmissionAcknowledgement):
+                cycle.update(
+                    status="confirmed",
+                    accepted=str(proposal["value"]),
+                    confirmation_source="provider_response",
+                    acknowledgement_matcher=acknowledgement.matcher,
+                    acknowledged_at=now.isoformat(),
+                )
+                cycle.pop("error", None)
+            else:
+                # Even a lost or unknown acknowledgement may have committed. Query
+                # once, never re-POST, and retain the durable ambiguous state.
+                cycle.update(status="uncertain", error="submission_uncertain")
             try:
                 latest = await self.query()
                 if latest.cycle == window.cycle:
                     if latest.submitted is not None:
                         await self.reconcile(latest, now)
-                    elif latest.private.get("submission_blocked"):
+                    elif latest.private.get("submission_blocked") and not isinstance(
+                        acknowledgement, SubmissionAcknowledgement
+                    ):
                         cycle.update(
                             error="submission_state_unknown",
                             observed_reading=latest.private.get("reported_reading"),

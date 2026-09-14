@@ -15,7 +15,12 @@ from bs4 import BeautifulSoup
 from .model import Bill, GasError, MeterWindow, decimal
 from .portal import AuthenticationError, Contract, opaque
 from .provider_transport import day, flag, month, number, request, required, rows, text, unwrap
-from .submission_transport import SubmissionNotSent, SubmissionRejected, SubmissionUncertain
+from .submission_transport import (
+    INPUT_Y_N,
+    SubmissionNotSent,
+    SubmissionUncertain,
+    match_submission_acknowledgement,
+)
 
 BASE = "https://app.gasapp.co.kr/api/"
 ENDPOINTS = {
@@ -437,5 +442,4 @@ class GasappClient:
         except GasError:
             # The POST may have committed. The coordinator reconciles, never resends.
             raise SubmissionUncertain("submission_uncertain") from None
-        if isinstance(response, dict) and response.get("inputYn") == "N":
-            raise SubmissionRejected("submission_rejected")
+        return match_submission_acknowledgement(response, (INPUT_Y_N,))

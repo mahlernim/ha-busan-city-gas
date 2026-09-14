@@ -167,10 +167,10 @@ async def test_single_multipart_write_after_server_value_check():
     expected = await client.meter(contract)
     client.call = AsyncMock(side_effect=[info(), meter(), {"responseCode": "ok", "addableYn": "Y"}])
     client.post_reading = AsyncMock(return_value={"responseCode": "ok"})
-    assert (
-        await client.submit(contract, expected, 123, now=datetime.now(ZoneInfo("Asia/Seoul")))
-        is None
+    acknowledgement = await client.submit(
+        contract, expected, 123, now=datetime.now(ZoneInfo("Asia/Seoul"))
     )
+    assert acknowledgement.matcher == "response_code_ok_fail"
     client.post_reading.assert_awaited_once_with("123")
     assert client.call.await_args.args == (
         "POST",

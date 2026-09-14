@@ -174,7 +174,7 @@ async def manager_for(fake, client):
         return await client.meter(CONTRACT)
 
     async def write(window, value):
-        await client.submit(CONTRACT, window, value, now=NOW)
+        return await client.submit(CONTRACT, window, value, now=NOW)
 
     manager = SubmissionManager(state, persist, query, write, enabled=True)
     initial = await query()
@@ -220,7 +220,6 @@ async def test_lost_acknowledgement_is_reconciled_without_reposting(fake_portal,
         "malformed",
         "unknown_ack",
         "oversize",
-        "ack_without_commit",
     ],
 )
 async def test_ambiguous_http_outcome_remains_locked_after_restart(fake_portal, mode):
@@ -237,6 +236,32 @@ async def test_ambiguous_http_outcome_remains_locked_after_restart(fake_portal, 
     with pytest.raises(GasError, match="submission_uncertain"):
         await restored.submit(again["id"], NOW, lambda p, w: None)
     assert len(fake.payloads) == 1
+
+
+@pytest.mark.parametrize("readback_failure", [False, True])
+async def test_explicit_Y_completes_even_when_readback_is_empty_or_fails(
+    fake_portal, readback_failure
+):
+    fake, client = fake_portal
+    fake.mode = "ack_without_commit"
+    fake.query_fail_after_write = readback_failure
+    manager, proposal, window, _ = await manager_for(fake, client)
+    result = await manager.submit(proposal["id"], NOW, lambda *_: None)
+    assert result["status"] == "confirmed"
+    assert result["accepted"] == "35"
+    assert result["confirmation_source"] == "provider_response"
+    assert result["acknowledgement_matcher"] == "result_y_n"
+    assert result["receipt_in_latest_read"] is False
+    assert manager.state[window.cycle]["status"] == "confirmed"
+    assert len(fake.payloads) == 1
+
+    if not readback_failure:
+        restored = SubmissionManager(
+            copy.deepcopy(manager.state), AsyncMock(), manager.query, manager.write, enabled=True
+        )
+        again = restored.proposal("35", "sensor", NOW, window)
+        assert (await restored.submit(again["id"], NOW, lambda *_: None))["status"] == "confirmed"
+        assert len(fake.payloads) == 1
 
 
 async def test_explicit_rejection_is_explained_and_daily_repeat_blocked(fake_portal):
@@ -272,12 +297,13 @@ async def test_recorded_value_with_N_flag_is_not_overwritten(fake_portal):
     assert not fake.payloads
 
 
-async def test_unconfirmed_report_after_write_is_not_a_success(fake_portal):
+async def test_explicit_Y_is_success_even_when_generic_readback_only_reports_a_value(fake_portal):
     fake, client = fake_portal
     fake.mode = "reported_unconfirmed"
     manager, proposal, _, _ = await manager_for(fake, client)
-    with pytest.raises(GasError, match="submission_state_unknown"):
-        await manager.submit(proposal["id"], NOW, lambda p, w: None)
+    result = await manager.submit(proposal["id"], NOW, lambda p, w: None)
+    assert result["status"] == "confirmed"
+    assert result["confirmation_source"] == "provider_response"
     assert len(fake.payloads) == 1
 
 
@@ -340,15 +366,17 @@ async def test_receipt_wins_over_fragmented_or_negative_ack(fake_portal, mode):
     assert result["status"] == "confirmed" and len(fake.payloads) == 1
 
 
-async def test_readback_failure_keeps_uncertainty_and_never_reposts(fake_portal):
+async def test_readback_failure_keeps_provider_acknowledgement_and_never_reposts(fake_portal):
     fake, client = fake_portal
     fake.query_fail_after_write = True
     manager, proposal, window, saved = await manager_for(fake, client)
-    with pytest.raises(GasError, match="submission_uncertain"):
-        await manager.submit(proposal["id"], NOW, lambda p, w: None)
-    assert saved[-1][window.cycle]["status"] == "uncertain"
+    result = await manager.submit(proposal["id"], NOW, lambda p, w: None)
+    assert result["status"] == "confirmed"
+    assert result["confirmation_source"] == "provider_response"
+    assert saved[-1][window.cycle]["status"] == "confirmed"
     fake.query_fail_after_write = False
     assert await manager.reconcile(await manager.query(), NOW)
+    assert manager.state[window.cycle]["confirmation_source"] == "readback"
     assert len(fake.payloads) == 1
 
 
@@ -411,14 +439,13 @@ async def test_ha_panel_handler_through_runtime_to_http(fake_portal, hass, monke
         if mode == "unauthorized":
             assert not fake.payloads
             assert connection.send_error.call_args.args[1] == "not_authorized"
-        elif mode == "ack_without_commit":
-            assert len(fake.payloads) == 1
-            assert connection.send_error.call_args.args[1] == "submission_uncertain"
-            assert runtime.view(CONTRACT.key)["submission_blocked"]
         else:
             assert len(fake.payloads) == 1
             receipt = connection.send_result.call_args.args[1]
             assert receipt["status"] == "confirmed" and receipt["accepted"] == "35"
+            if mode == "ack_without_commit":
+                assert receipt["confirmation_source"] == "provider_response"
+                assert runtime.view(CONTRACT.key)["submission_blocked"]
             if mode == "notification_failure":
                 assert receipt["notification_warning"] == "notification_failed"
     finally:

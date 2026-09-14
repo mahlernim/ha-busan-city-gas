@@ -15,7 +15,12 @@ from datetime import datetime
 from .model import Bill, GasError, MeterWindow, decimal
 from .portal import AuthenticationError, Contract, opaque
 from .provider_transport import day, month, number, request, required, text, unwrap
-from .submission_transport import SubmissionNotSent, SubmissionRejected, SubmissionUncertain
+from .submission_transport import (
+    RETCD_S_E,
+    SubmissionNotSent,
+    SubmissionUncertain,
+    match_submission_acknowledgement,
+)
 
 API_BASE = "https://ecpgw.samchully.co.kr/relay/"
 READ_PATHS = frozenset(
@@ -302,10 +307,9 @@ class SamchullyClient:
                 stage="submission",
                 authenticated=False,
             )
-            status = text(response, "E_RETCD")
         except GasError:
             raise SubmissionUncertain("submission_uncertain") from None
-        if status == "E":
-            raise SubmissionRejected("submission_rejected")
-        if status != "S":
+        acknowledgement = match_submission_acknowledgement(response, (RETCD_S_E,))
+        if acknowledgement is None:
             raise SubmissionUncertain("submission_uncertain")
+        return acknowledgement
