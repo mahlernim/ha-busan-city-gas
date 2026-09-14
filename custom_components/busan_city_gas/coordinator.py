@@ -122,7 +122,7 @@ class AccountCoordinator(DataUpdateCoordinator):
                 return window
 
             async def write(window, value, c=contract):
-                await self.client.submit(c, window, value, now=dt_util.now())
+                return await self.client.submit(c, window, value, now=dt_util.now())
 
             self.submissions[key] = SubmissionManager(
                 state,
@@ -454,6 +454,7 @@ class AccountCoordinator(DataUpdateCoordinator):
             "submission_proposed": cycle.get("proposed"),
             "submission_observed": cycle.get("observed_reading"),
             "receipt_in_latest_read": cycle.get("receipt_in_latest_read"),
+            "confirmation_source": cycle.get("confirmation_source"),
             "submission_blocked": bool(window and window.private.get("submission_blocked"))
             or key in self.startup_deadlines
             or cycle.get("status") in ("confirmed", "pending", "uncertain")

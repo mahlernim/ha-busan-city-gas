@@ -41,7 +41,7 @@ const modelLabel = r => r.source_configured ? "실측 기준 + 센서 증가량"
 const modelMessage = r => r.source_waiting ? errors.source_waiting : r.source_configured ? (r.gap ? "측정 공백 또는 초기화가 있습니다. 자동 제출 전에 실측 보정이 필요합니다." : "") : ({anchor_required:"계량기 기준값이 없습니다. 현재 계량기의 실제 숫자를 입력해 주세요.",insufficient_data:"추정 자료가 부족합니다. 실제 숫자는 기록할 수 있지만 증가 속도는 아직 계산할 수 없습니다.",learning_pending:"과거 사용량으로 추정 중입니다. 7일 이상 간격의 실측 기록이 쌓이면 최근 사용 추세도 반영합니다."}[r.estimation_status] || "");
 const windowMessage = r => {
   const period = `${shortDate(r.window_start)}부터 ${shortDate(r.window_end)}까지`;
-  if(r.submission_status === "confirmed") return `이번 주기는 ${number(r.accepted)} m³로 접수가 확인되었습니다. 다시 제출할 필요가 없습니다.`;
+  if(r.submission_status === "confirmed") return r.confirmation_source === "provider_response" ? `공급사가 ${number(r.accepted)} m³ 등록 완료로 응답했습니다. 공식 재조회 반영을 기다리지 않고 완료로 기록했으며 다시 제출할 필요가 없습니다.` : `이번 주기는 ${number(r.accepted)} m³로 접수가 확인되었습니다. 다시 제출할 필요가 없습니다.`;
   if(r.submission_error && errors[r.submission_error]) return errors[r.submission_error];
   if(["pending","uncertain"].includes(r.submission_status)) return "이전 제출의 접수 여부를 확인해야 합니다. 성공 또는 실패가 확정되지 않았으므로 다시 전송하지 않습니다. 도시가스 공급사 홈페이지에서 접수 내역을 확인해 주세요.";
   const status = r.window_status || (r.window_open ? "open" : (r.today && r.window_start && r.today < r.window_start ? "before" : "unknown"));
@@ -53,6 +53,7 @@ const windowMessage = r => {
   return "자가검침 제출 기간을 아직 확인하지 못했습니다. 공식 정보를 새로고침해 주세요. 확인 전에는 제출할 수 없습니다.";
 };
 const receiptMessage = r => {
+  if(r.submission_status === "confirmed" && r.confirmation_source === "provider_response" && r.receipt_in_latest_read === false) return "공급사가 등록 완료로 응답한 기록을 유지했습니다. 이번 공식 재조회에는 접수값이 아직 없어도 다시 제출하지 않습니다.";
   if(r.submission_status === "confirmed" && r.receipt_in_latest_read === false) return "이전에 확인된 접수 기록은 유지했습니다. 다만 이번 조회에는 접수값이 없어 홈페이지에서 확인이 필요합니다. 다시 제출하지 않습니다.";
   if(r.submission_status === "confirmed") return `접수 확인: ${number(r.accepted)} m³. 검침값을 새로 전송하지 않았습니다.`;
   if(r.submission_error) return errors[r.submission_error] || errors.submission_uncertain;
@@ -208,7 +209,7 @@ class BusanCityGasPanel extends HTMLElement {
       ${r.period_start ? `<p>예상 사용기간 ${esc(r.period_start)} ~ ${esc(r.period_end)} (종료 예정)</p>` : '<p class="muted">청구 시작 기준·예정 종료일을 확인하기 전에는 기간 사용량과 예상 요금이 준비 중으로 표시됩니다.</p>'}</section>
       <section><h2>자가검침</h2><p>${r.supports_deadline === false ? "현재 접수 가능 여부를 실시간 확인합니다. 마감일 정보는 제공되지 않습니다." : `입력 기간 ${esc(r.window_start || "확인 중")} ~ ${esc(r.window_end || "확인 중")}`}</p>
       <p role="status">${esc(windowMessage(r))}</p>
-      <p>상태: ${esc(({not_submitted:"미제출",pending:"처리 중",uncertain:"접수 확인 필요",confirmed:"접수 확인됨",rejected:"서버 저장 실패 응답",not_sent:"전송 전 중단"})[r.submission_status] || r.submission_status)}${r.accepted != null ? ` · 조회된 접수값 ${fmt(r.accepted)}` : ""}</p>
+      <p>상태: ${esc(r.submission_status === "confirmed" && r.confirmation_source === "provider_response" ? "공급사 등록 완료 응답" : ({not_submitted:"미제출",pending:"처리 중",uncertain:"접수 확인 필요",confirmed:"접수 확인됨",rejected:"서버 저장 실패 응답",not_sent:"전송 전 중단"})[r.submission_status] || r.submission_status)}${r.accepted != null ? ` · ${r.confirmation_source === "provider_response" ? "등록 요청값" : "조회된 접수값"} ${fmt(r.accepted)}` : ""}</p>
       ${r.submission_proposed != null ? `<p>마지막 요청값 ${fmt(r.submission_proposed)} · ${esc(r.submission_attempted_at || "시각 미확인")}</p>` : ""}
       ${r.accepted_checked_at ? `<p class="muted">접수 상태 확인 시각 ${esc(r.accepted_checked_at)} · 이번 조회값 ${r.submission_observed != null ? fmt(r.submission_observed) : "미확인"}</p>` : ""}
       ${r.submission_status === "confirmed" && r.receipt_in_latest_read === false ? `<p class="warning">${esc(receiptMessage(r))}</p>` : ""}

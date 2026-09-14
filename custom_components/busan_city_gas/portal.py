@@ -441,9 +441,7 @@ class PortalClient:
         except ValueError:
             raise GasError("heat_schema_changed") from None
 
-    async def submit(
-        self, contract: Contract, window: MeterWindow, value: int, *, now: datetime
-    ) -> None:
+    async def submit(self, contract: Contract, window: MeterWindow, value: int, *, now: datetime):
         # Emergency switch, independent of the per-request validation below.
         if not SUBMISSION_ENABLED:
             raise GasError("submission_disabled")
@@ -461,8 +459,7 @@ class PortalClient:
                 raise SubmissionNotSent("reauth_required")
             # Never use read(): it retries authenticated reads after login.
             if self.provider.id == "busan":
-                await send_once(self.session, BASE_URL, payload)
-            else:
-                await send_once(
-                    self.session, BASE_URL, payload, form_path=form_path, submit_path=submit_path
-                )
+                return await send_once(self.session, BASE_URL, payload)
+            return await send_once(
+                self.session, BASE_URL, payload, form_path=form_path, submit_path=submit_path
+            )

@@ -175,12 +175,13 @@ async def test_register_requires_consent_and_is_explicit():
     assert client.call.await_args_list[0].args[:2] == ("POST", "indications/register")
 
 
-async def test_submit_sends_one_integer_post_and_never_claims_receipt():
+async def test_submit_sends_one_integer_post_and_returns_known_acknowledgement():
     client, contract = client_and_contract()
     client.call = AsyncMock(return_value=target())
     expected = await client.meter(contract)
     client.call = AsyncMock(side_effect=[target(), {"inputYn": "Y"}])
-    assert await client.submit(contract, expected, "123.0", now=NOW) is None
+    acknowledgement = await client.submit(contract, expected, "123.0", now=NOW)
+    assert acknowledgement.matcher == "input_yn"
     assert [c.args[:2] for c in client.call.await_args_list] == [
         ("GET", "indications"),
         ("POST", "relay/indications/input"),
@@ -230,7 +231,7 @@ async def test_preflight_failure_allows_explicit_retry_without_false_uncertainty
     expected = await client.meter(contract)
 
     async def write(window, value):
-        await client.submit(contract, window, value, now=NOW)
+        return await client.submit(contract, window, value, now=NOW)
 
     manager = SubmissionManager({}, AsyncMock(), AsyncMock(return_value=expected), write)
     proposal = manager.proposal("123", "manual", NOW, expected)
@@ -243,12 +244,12 @@ async def test_preflight_failure_allows_explicit_retry_without_false_uncertainty
 
     client.call = AsyncMock(side_effect=[target(), {"inputYn": "Y"}])
     manager.query = AsyncMock(side_effect=[expected, expected])
-    # If the write acknowledgement has no receipt, it must still lock retries.
-    with pytest.raises(GasError, match="submission_uncertain"):
-        await manager.submit(proposal["id"], NOW, lambda *args: None)
-    with pytest.raises(GasError, match="submission_uncertain"):
-        manager.query = AsyncMock(return_value=expected)
-        await manager.submit(proposal["id"], NOW, lambda *args: None)
+    # A known provider acknowledgement completes registration and still locks retries.
+    result = await manager.submit(proposal["id"], NOW, lambda *args: None)
+    assert result["status"] == "confirmed"
+    assert result["confirmation_source"] == "provider_response"
+    manager.query = AsyncMock(return_value=expected)
+    assert (await manager.submit(proposal["id"], NOW, lambda *args: None))["status"] == "confirmed"
     assert [c.args[:2] for c in client.call.await_args_list] == [
         ("GET", "indications"),
         ("POST", "relay/indications/input"),

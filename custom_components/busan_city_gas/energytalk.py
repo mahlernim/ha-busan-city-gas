@@ -18,7 +18,12 @@ import aiohttp
 from .model import Bill, GasError, MeterWindow, decimal
 from .portal import AuthenticationError, ConnectionError, Contract, opaque
 from .provider_transport import month, number, request, required, text
-from .submission_transport import SubmissionNotSent, SubmissionRejected, SubmissionUncertain
+from .submission_transport import (
+    RESPONSE_CODE_OK_FAIL,
+    SubmissionNotSent,
+    SubmissionUncertain,
+    match_submission_acknowledgement,
+)
 
 BASE = "https://energytalk.ai"
 TENANTS = frozenset(
@@ -249,15 +254,15 @@ class EnergyTalkClient:
                 raise GasError("provider_value_not_allowed")
         except GasError as error:
             raise SubmissionNotSent(str(error)) from None
-        # Exactly one mutation. An acknowledgement alone is not a receipt;
-        # SubmissionManager re-reads current meter state and compares values.
+        # Exactly one mutation. A known provider acknowledgement records
+        # registration; SubmissionManager still performs a read-only refresh.
         try:
             response = await self.post_reading(str(int(numeric)))
         except GasError:
             raise SubmissionUncertain("submission_uncertain") from None
-        if isinstance(response, dict) and response.get("responseCode") == "fail":
-            raise SubmissionRejected("submission_rejected")
+        acknowledgement = match_submission_acknowledgement(response, (RESPONSE_CODE_OK_FAIL,))
         envelope(response)
+        return acknowledgement
 
     async def post_reading(self, value):
         if self.auth_expired:
