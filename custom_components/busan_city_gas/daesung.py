@@ -401,7 +401,9 @@ class DaesungClient:
             if value < decimal(fresh.previous):
                 raise GasError("below_official_reading")
             body = {**fresh.private["fields"], fresh.private["reading"]: str(value)}
-        except (GasError, ValueError):
+        except GasError as error:
+            raise SubmissionNotSent(str(error)) from None
+        except ValueError:
             raise SubmissionNotSent("submission_preflight_failed") from None
         try:
             await self._request(fresh.private["action"], body, write=True)

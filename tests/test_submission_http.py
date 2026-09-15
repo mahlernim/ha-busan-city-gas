@@ -34,6 +34,7 @@ class FakePortal:
     form = FORM
     query_fail_after_write = False
     end = "20260918"
+    expire_form_once = False
 
     def __init__(self):
         self.requests = []
@@ -66,6 +67,11 @@ class FakePortal:
             response = web.json_response({"errCd": "S"})
             response.set_cookie("JSESSIONID", "synthetic-session")
             return response
+        if request.path.endswith("/selfRead.do") and self.expire_form_once:
+            self.expire_form_once = False
+            return web.Response(
+                text="<script>parent.location.replace('/busan/login/login.do?returnURL=/busan/read/selfRead.do');</script>"
+            )
         assert request.cookies.get("JSESSIONID") == "synthetic-session"
         if request.path.endswith("/selfRead.do"):
             return web.Response(text=self.form)
@@ -193,6 +199,29 @@ async def test_real_http_login_form_write_and_exact_readback(fake_portal):
     assert saved[-1][window.cycle]["status"] == "confirmed"
     assert "Test Resident" not in json.dumps(saved)
     assert "test-password" not in json.dumps(saved)
+
+
+async def test_expired_form_session_reauthenticates_before_one_submission(fake_portal):
+    fake, client = fake_portal
+    manager, proposal, window, saved = await manager_for(fake, client)
+    fake.expire_form_once = True
+    result = await manager.submit(proposal["id"], NOW, lambda p, w: None)
+    assert result["status"] == "confirmed" and result["accepted"] == "35"
+    assert fake.requests.count("/busan/login/loginProcess.do") == 2
+    assert fake.requests.count("/busan/read/selfRead.do") == 2
+    assert len(fake.payloads) == 1
+    assert saved[-1][window.cycle]["status"] == "confirmed"
+
+
+async def test_repeated_login_redirect_stops_before_write(fake_portal):
+    fake, client = fake_portal
+    manager, proposal, window, _ = await manager_for(fake, client)
+    fake.form = "<script>parent.location.replace('/busan/login/login.do');</script>"
+    with pytest.raises(GasError, match="reauth_required"):
+        await manager.submit(proposal["id"], NOW, lambda p, w: None)
+    assert fake.requests.count("/busan/login/loginProcess.do") == 2
+    assert not fake.payloads
+    assert manager.state[window.cycle]["status"] == "not_sent"
 
 
 @pytest.mark.parametrize("mode", ["drop_after_commit", "timeout_after_commit"])

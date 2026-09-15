@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -11,6 +12,7 @@ from custom_components.busan_city_gas.daesung import (
     contracts_from_html,
 )
 from custom_components.busan_city_gas.model import GasError
+from custom_components.busan_city_gas.portal import AuthenticationError
 from custom_components.busan_city_gas.submission_transport import (
     SubmissionNotSent,
     SubmissionUncertain,
@@ -134,6 +136,19 @@ async def test_changed_cycle_never_writes(client, monkeypatch):
     monkeypatch.setattr(client, "_read", read)
     with pytest.raises(SubmissionNotSent):
         await client.submit(contract, window, 125, now=datetime(2026, 9, 4, tzinfo=timezone.utc))
+
+
+async def test_preflight_auth_failure_keeps_actionable_error(client, monkeypatch):
+    (contract,) = contracts_from_html(CONTRACT_HTML, client.provider, "synthetic")
+    window = client._window(meter_html(client.meter_path), contract)
+    monkeypatch.setattr(
+        client, "contracts", AsyncMock(side_effect=AuthenticationError("reauth_required"))
+    )
+    send = AsyncMock()
+    monkeypatch.setattr(client, "_request", send)
+    with pytest.raises(SubmissionNotSent, match="^reauth_required$"):
+        await client.submit(contract, window, 125, now=datetime(2026, 9, 4, tzinfo=timezone.utc))
+    send.assert_not_awaited()
 
 
 @pytest.mark.asyncio

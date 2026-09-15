@@ -100,6 +100,40 @@ async def test_web_login_contract_and_billing_units(wire):
     assert bills["202608"]["closing_reading"] == "100"
 
 
+@pytest.mark.parametrize("code", ["MYPAGE3", "BILL001", "BILL002", "SELF100"])
+async def test_expired_read_session_reauthenticates_once(wire, monkeypatch, code):
+    client, responses, calls = wire
+    await client.login()
+    calls.clear()
+    original_request = haeyang.request
+    expired = True
+
+    async def request(session, requested, body):
+        nonlocal expired
+        if requested == code and expired:
+            expired = False
+            calls.append((requested, body))
+            raise AuthenticationError("reauth_required")
+        return await original_request(session, requested, body)
+
+    monkeypatch.setattr(haeyang, "request", request)
+    assert await client.call(code, {}) == responses[code]
+    assert [requested for requested, _ in calls] == [code, "LOGIN", code]
+
+
+@pytest.mark.parametrize("code", ["SELF100", "SELF101"])
+async def test_persistent_auth_failure_is_bounded_and_write_never_replayed(wire, code):
+    client, responses, calls = wire
+    await client.login()
+    calls.clear()
+    responses[code] = AuthenticationError("reauth_required")
+    with pytest.raises(AuthenticationError, match="reauth_required"):
+        await client.call(code, {})
+    expected = [code, "LOGIN", code] if code == "SELF100" else [code]
+    assert [requested for requested, _ in calls] == expected
+    assert client.login_body is None
+
+
 async def test_detail_failure_preserves_monthly_bill(wire):
     client, responses, _ = wire
     (contract,) = await client.contracts()
