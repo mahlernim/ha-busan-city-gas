@@ -75,6 +75,24 @@ test('wire errors are Korean and distinguish mismatch, rejection and unknown rec
  assert.match(context.windowMessage({...base,submission_status:'uncertain',submission_error:'submission_value_mismatch'}),/요청한 값과 다릅니다/);
  assert.match(context.windowMessage({...base,submission_status:'rejected',submission_error:'submission_rejected'}),/원인은 제공되지/);
 });
+
+test('contract parsing failures explain that no reading was sent',()=>{
+ const row={...base,submission_status:'not_sent',submission_error:'contract_schema_changed'};
+ for(const text of [context.errorMessage({code:'contract_schema_changed'},row),context.windowMessage(row),context.receiptMessage(row)]) {
+  assert.match(text,/계약 정보/);
+  assert.match(text,/전송하지 않았습니다/);
+ }
+ assert.match(renderRow(row),/계약 정보/);
+});
+
+test('unmapped provider preflight failures remain visible as not sent',()=>{
+ const row={...base,submission_status:'not_sent',submission_error:'provider_meter_http_503'};
+ for(const text of [context.windowMessage(row),context.receiptMessage(row)]) {
+  assert.match(text,/전송하지 않았습니다/);
+  assert.doesNotMatch(text,/provider_meter_http_503|접수 여부가 불명확/);
+ }
+ assert.match(context.windowMessage({...row,submission_status:'uncertain'}),/결과를 확인하지 못했습니다/);
+});
 test('receipt-only results distinguish missing, confirmed and disappearing records',()=>{
  assert.match(context.receiptMessage({...base}),/전송하거나 재전송하지 않았습니다/);
  assert.match(context.receiptMessage({...base,submission_status:'confirmed',accepted:'35',receipt_in_latest_read:true}),/접수 확인: 35/);

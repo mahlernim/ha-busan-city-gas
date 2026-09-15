@@ -141,12 +141,14 @@ class HaeyangClient:
             rows(self.login_body, "payerList")
             return self.login_body
 
-    async def call(self, code, body):
+    async def call(self, code, body, *, retry_read=True):
         await self.login()
         try:
             return await request(self.session, code, body)
         except AuthenticationError:
             self.login_body = None
+            if retry_read and code in {"MYPAGE3", "BILL001", "BILL002", "SELF100"}:
+                return await self.call(code, body, retry_read=False)
             raise
 
     def account(self, contract):

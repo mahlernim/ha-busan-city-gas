@@ -15,6 +15,7 @@ const errors = {
   submission_state_unknown: "검침 숫자는 조회되지만 접수 상태가 명확하지 않습니다. 성공으로 표시하거나 다시 전송하지 않습니다. 홈페이지에서 확인해 주세요.",
   portal_reading_present: "이미 입력된 것으로 보이는 검침값이 있어 덮어쓰지 않았습니다. 홈페이지에서 접수 상태를 확인해 주세요.",
   submission_contract_changed: "계약 또는 계량기 정보가 달라 전송하지 않았습니다. 공식 정보를 새로고침하고 다시 확인해 주세요.",
+  contract_schema_changed: "공급사 계약 정보를 확인하지 못해 검침값을 전송하지 않았습니다. 요금·검침 정보를 업데이트한 뒤 다시 확인해 주세요. 계속되면 통합 업데이트 또는 공급사 로그인을 확인하세요.",
   submission_metadata_missing: "제출에 필요한 정보를 확인하지 못해 전송하지 않았습니다. 홈페이지에서 확인하거나 통합 업데이트를 확인해 주세요.",
   invalid_submission_value: "제출값은 0부터 99999 사이의 정수여야 합니다. 계량기 숫자를 확인해 주세요.",
   invalid_submission_time: "제출 시각의 시간대를 확인하지 못해 전송하지 않았습니다. Home Assistant 시간대 설정을 확인해 주세요.",
@@ -42,7 +43,7 @@ const modelMessage = r => r.source_waiting ? errors.source_waiting : r.source_co
 const windowMessage = r => {
   const period = `${shortDate(r.window_start)}부터 ${shortDate(r.window_end)}까지`;
   if(r.submission_status === "confirmed") return r.confirmation_source === "provider_response" ? `공급사가 ${number(r.accepted)} m³ 등록 완료로 응답했습니다. 공식 재조회 반영을 기다리지 않고 완료로 기록했으며 다시 제출할 필요가 없습니다.` : `이번 주기는 ${number(r.accepted)} m³로 접수가 확인되었습니다. 다시 제출할 필요가 없습니다.`;
-  if(r.submission_error && errors[r.submission_error]) return errors[r.submission_error];
+  if(r.submission_error) return errorMessage({code:r.submission_error}, r);
   if(["pending","uncertain"].includes(r.submission_status)) return "이전 제출의 접수 여부를 확인해야 합니다. 성공 또는 실패가 확정되지 않았으므로 다시 전송하지 않습니다. 도시가스 공급사 홈페이지에서 접수 내역을 확인해 주세요.";
   const status = r.window_status || (r.window_open ? "open" : (r.today && r.window_start && r.today < r.window_start ? "before" : "unknown"));
   if(status === "before") return `오늘은 자가검침 제출 기간이 아닙니다. ${period} 제출 가능합니다.`;
@@ -56,11 +57,11 @@ const receiptMessage = r => {
   if(r.submission_status === "confirmed" && r.confirmation_source === "provider_response" && r.receipt_in_latest_read === false) return "공급사가 등록 완료로 응답한 기록을 유지했습니다. 이번 공식 재조회에는 접수값이 아직 없어도 다시 제출하지 않습니다.";
   if(r.submission_status === "confirmed" && r.receipt_in_latest_read === false) return "이전에 확인된 접수 기록은 유지했습니다. 다만 이번 조회에는 접수값이 없어 홈페이지에서 확인이 필요합니다. 다시 제출하지 않습니다.";
   if(r.submission_status === "confirmed") return `접수 확인: ${number(r.accepted)} m³. 검침값을 새로 전송하지 않았습니다.`;
-  if(r.submission_error) return errors[r.submission_error] || errors.submission_uncertain;
+  if(r.submission_error) return errorMessage({code:r.submission_error}, r);
   if(r.submission_observed != null) return errors.portal_reading_present;
   return "현재 조회에서 접수 내역을 확인하지 못했습니다. 검침값을 전송하거나 재전송하지 않았습니다.";
 };
-const errorMessage = (error, row) => error?.code === "window_closed" ? `조회한 접수 기간 또는 주기가 현재 요청과 맞지 않아 전송하지 않았습니다. 마지막으로 확인한 기간은 ${shortDate(row.window_start)}부터 ${shortDate(row.window_end)}까지입니다. 공식 정보를 새로고침해 주세요.` : errors[error?.code] || "처리 결과를 확인하지 못했습니다. 공식 정보와 접수 내역을 먼저 확인해 주세요. 제출을 요청했다면 확인 없이 재전송하지 마세요.";
+const errorMessage = (error, row) => error?.code === "window_closed" ? `조회한 접수 기간 또는 주기가 현재 요청과 맞지 않아 전송하지 않았습니다. 마지막으로 확인한 기간은 ${shortDate(row.window_start)}부터 ${shortDate(row.window_end)}까지입니다. 공식 정보를 새로고침해 주세요.` : errors[error?.code] || (row.submission_status === "not_sent" ? "제출 전 공급사 정보를 확인하지 못해 검침값을 전송하지 않았습니다. 요금·검침 정보를 업데이트한 뒤 다시 확인해 주세요. 계속되면 공급사 로그인과 통합 업데이트를 확인하세요." : "처리 결과를 확인하지 못했습니다. 공식 정보와 접수 내역을 먼저 확인해 주세요. 제출을 요청했다면 확인 없이 재전송하지 마세요.");
 
 class BusanCityGasPanel extends HTMLElement {
   constructor() {
@@ -189,7 +190,7 @@ class BusanCityGasPanel extends HTMLElement {
       .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.metric{font-size:25px;font-weight:600;margin-top:6px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
       button{background:var(--primary-color,#126b54);color:var(--text-primary-color,white);border:0;border-radius:9px;padding:13px 16px;font:inherit;cursor:pointer;min-height:46px}button:disabled{opacity:.45;cursor:default}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--accent-color,#e7ac42);outline-offset:3px}
       input,select{box-sizing:border-box;font:inherit;border:1px solid #98aaa3;border-radius:8px;padding:12px;max-width:100%;background:var(--card-background-color,#fff);color:inherit}input{width:100%;margin-top:8px}label{display:block}table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:10px 4px;border-bottom:1px solid var(--divider-color,#e4eae6)}
-      .status{min-height:24px;white-space:pre-wrap}a{color:var(--primary-color,#126b54)}details{margin:15px 0}summary{cursor:pointer}.scroll{overflow:auto}@media(max-width:500px){main{padding:18px 12px 48px}section{padding:18px}.grid{gap:10px}.metric{font-size:21px}header{align-items:start;flex-direction:column}.big{font-size:40px}.actions button{flex:1}}
+      .status{position:sticky;top:8px;z-index:2;white-space:pre-wrap;padding:14px;border:2px solid var(--primary-color,#126b54);border-radius:10px;background:var(--card-background-color,#fff);box-shadow:0 2px 8px #0002}.status:empty{display:none}a{color:var(--primary-color,#126b54)}details{margin:15px 0}summary{cursor:pointer}.scroll{overflow:auto}@media(max-width:500px){main{padding:18px 12px 48px}section{padding:18px}.grid{gap:10px}.metric{font-size:21px}header{align-items:start;flex-direction:column}.big{font-size:40px}.actions button{flex:1}}
     </style><main><header><h1>똑똑 자가검침 AI</h1>${this.rows.length > 1 ? `<select id="contract" aria-label="계약 선택">${this.rows.map(row => `<option value="${esc(row.key)}" ${r?.key === row.key ? "selected" : ""}>${esc(row.label)}</option>`).join("")}</select>` : ""}</header>
     <div class="status" role="status" aria-live="polite">${esc(this.message)}</div>
     ${r ? `

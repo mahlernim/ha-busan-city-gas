@@ -29,6 +29,28 @@ def test_html_error_and_login_not_success():
         contracts_from_html("<title>Error</title>")
 
 
+@pytest.mark.parametrize(
+    "provider", ["busan", "koone", "cheongju", "gumi", "pohang", "jeonnam", "gangwon", "jeonbuk"]
+)
+def test_script_only_login_redirect_is_expired_authentication(provider):
+    html = (
+        "<script type='text/javascript'>\n"
+        f"parent.location.replace('/{provider}/login/login.do?returnURL=/{provider}/read/selfRead.do');"
+        "</script>"
+    )
+    with pytest.raises(AuthenticationError, match="reauth_required"):
+        contracts_from_html(html)
+
+
+def test_login_navigation_link_does_not_invalidate_contract_page():
+    html = (
+        '<script>f({BPNO:"1234"})</script><input id="list_cano_0" value="1111">'
+        '<a href="/busan/login/login.do">Login</a>'
+        "<script>function login(){parent.location.replace('/busan/login/login.do');}</script>"
+    )
+    assert len(contracts_from_html(html)) == 1
+
+
 @pytest.mark.parametrize("submitted,flag,expected", [("0", "N", None), ("35", "Y", "35")])
 def test_meter_flags_not_zero_heuristic(submitted, flag, expected):
     window = meter_from_json(

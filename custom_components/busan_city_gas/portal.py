@@ -42,6 +42,15 @@ def document(html: str) -> BeautifulSoup:
     soup = BeautifulSoup(html, "html.parser")
     if soup.select_one('input[type="password"]'):
         raise AuthenticationError("reauth_required")
+    # Expired SK E&S sessions return HTTP 200 with a script-only login redirect.
+    # Match the complete statement, not dormant login functions or navigation links.
+    for script in soup.find_all("script"):
+        if re.fullmatch(
+            r"\s*(?:(?:parent|top|window|self)\.)?location\.(?:replace|assign)\(\s*"
+            r"(['\"])/[a-zA-Z0-9_-]+/login/login\.do(?:\?[^'\"<>]*)?\1\s*\)\s*;?\s*",
+            script.string or "",
+        ):
+            raise AuthenticationError("reauth_required")
     if soup.title and "error" in soup.title.get_text().lower():
         raise GasError("portal_error")
     return soup
