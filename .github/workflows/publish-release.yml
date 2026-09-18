@@ -1,0 +1,165 @@
+name: Publish release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-release.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build, tag, and publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source and tags
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Allow only the initial bootstrap or a manual run
+        id: gate
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          should_publish=false
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            should_publish=true
+          elif [[ "$BEFORE_SHA" == "0000000000000000000000000000000000000000" ]] || \
+               ! git cat-file -e "$BEFORE_SHA:.github/workflows/publish-release.yml" 2>/dev/null; then
+            should_publish=true
+          fi
+
+          version=$(python - <<'PY'
+          import json
+          from pathlib import Path
+
+          print(json.loads(Path("custom_components/busan_city_gas/manifest.json").read_text())["version"])
+          PY
+          )
+          tag="v$version"
+          notes="docs/release-$version.md"
+          heading=$(sed -n "s/^## $version //p" CHANGELOG.md | head -n 1)
+          title="똑똑 자가검침 AI $tag${heading:+ $heading}"
+          test -f "$notes"
+
+          tag_exists=false
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; nothing will be overwritten."
+            should_publish=false
+          elif git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
+            tag_exists=true
+            target=$(git rev-list -n 1 "$tag")
+            if [[ "$target" != "$GITHUB_SHA" ]]; then
+              echo "::error::Existing $tag points to $target instead of $GITHUB_SHA."
+              exit 1
+            fi
+          fi
+
+          echo "publish=$should_publish" >> "$GITHUB_OUTPUT"
+          echo "tag_exists=$tag_exists" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "notes=$notes" >> "$GITHUB_OUTPUT"
+          echo "title=$title" >> "$GITHUB_OUTPUT"
+
+      - name: Verify version metadata
+        if: steps.gate.outputs.publish == 'true'
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.gate.outputs.version }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          expected = os.environ["RELEASE_VERSION"]
+          manifest = json.loads(Path("custom_components/busan_city_gas/manifest.json").read_text())["version"]
+          const = re.search(r'^VERSION = "([^"]+)"$', Path("custom_components/busan_city_gas/const.py").read_text(), re.M).group(1)
+          project = re.search(r'^version = "([^"]+)"$', Path("pyproject.toml").read_text(), re.M).group(1)
+          assert manifest == const == project == expected, (manifest, const, project, expected)
+          PY
+
+      - name: Build and inspect release archive
+        if: steps.gate.outputs.publish == 'true'
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.gate.outputs.version }}
+        run: |
+          set -euo pipefail
+          python tools/build.py
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          archive = Path("dist/busan_city_gas.zip")
+          with ZipFile(archive) as item:
+              names = item.namelist()
+              assert names
+              assert all(name.startswith("custom_components/busan_city_gas/") for name in names)
+              assert not any("__pycache__" in name or name.endswith((".pyc", ".env")) for name in names)
+              manifest = json.loads(item.read("custom_components/busan_city_gas/manifest.json"))
+              assert manifest["version"] == os.environ["RELEASE_VERSION"]
+          print("release_files", len(names))
+          print("release_sha256", hashlib.sha256(archive.read_bytes()).hexdigest())
+          PY
+
+      - name: Create annotated tag
+        if: steps.gate.outputs.publish == 'true' && steps.gate.outputs.tag_exists != 'true'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.gate.outputs.tag }}
+          RELEASE_TITLE: ${{ steps.gate.outputs.title }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate "$RELEASE_TAG" --message "$RELEASE_TITLE" "$GITHUB_SHA"
+          git push origin "refs/tags/$RELEASE_TAG"
+
+      - name: Publish release and asset
+        if: steps.gate.outputs.publish == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.gate.outputs.tag }}
+          RELEASE_TITLE: ${{ steps.gate.outputs.title }}
+          RELEASE_NOTES: ${{ steps.gate.outputs.notes }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" dist/busan_city_gas.zip \
+            --verify-tag \
+            --title "$RELEASE_TITLE" \
+            --notes-file "$RELEASE_NOTES"
+
+      - name: Verify published release
+        if: steps.gate.outputs.publish == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.gate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json tagName,isDraft,isPrerelease,url
+          mkdir "$RUNNER_TEMP/release-check"
+          gh release download "$RELEASE_TAG" \
+            --pattern busan_city_gas.zip \
+            --dir "$RUNNER_TEMP/release-check"
+          cmp dist/busan_city_gas.zip "$RUNNER_TEMP/release-check/busan_city_gas.zip"
