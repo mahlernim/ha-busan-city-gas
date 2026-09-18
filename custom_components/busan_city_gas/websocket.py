@@ -87,13 +87,19 @@ async def ws_calibrate(hass, connection, msg):
         fail(connection, msg, error)
 
 
-@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/proposal", **BASE})
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/proposal",
+        **BASE,
+        vol.Optional("revision", default=False): bool,
+    }
+)
 @websocket_api.async_response
 async def ws_proposal(hass, connection, msg):
     try:
         item = runtime(hass, msg["entry_id"])
         await allowed(item, connection, msg["key"])
-        connection.send_result(msg["id"], item.propose(msg["key"]))
+        connection.send_result(msg["id"], item.propose(msg["key"], revision=msg["revision"]))
     except Exception as error:
         fail(connection, msg, error)
 

@@ -68,7 +68,9 @@ async def async_setup(hass, _config):
         item = get(call)
         try:
             await item.authorize(call.data["contract_key"], call.context.user_id)
-            return item.propose(call.data["contract_key"])
+            return item.propose(
+                call.data["contract_key"], revision=call.data.get("revision", False)
+            )
         except GasError as error:
             raise HomeAssistantError(str(error)) from error
 
@@ -110,7 +112,7 @@ async def async_setup(hass, _config):
         if not hass.services.has_service(DOMAIN, name):
             hass.services.async_register(DOMAIN, name, handler, schema=schema)
     for name, handler, fields in (
-        ("prepare_submission", prepare_submission, {}),
+        ("prepare_submission", prepare_submission, {vol.Optional("revision", default=False): bool}),
         ("submit", submit, {vol.Required("proposal_id"): str}),
         ("check_submission", check_submission, {}),
     ):
