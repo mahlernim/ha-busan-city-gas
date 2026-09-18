@@ -19,8 +19,9 @@ from aiohttp import web
 from custom_components.busan_city_gas import portal, submission_transport
 from custom_components.busan_city_gas.model import GasError
 from custom_components.busan_city_gas.portal import Contract, PortalClient, opaque
+from custom_components.busan_city_gas.provider import PROVIDERS
 from custom_components.busan_city_gas.submission import SubmissionManager
-from custom_components.busan_city_gas.submission_transport import build_payload
+from custom_components.busan_city_gas.submission_transport import SubmissionNotSent, build_payload
 
 NOW = datetime(2026, 9, 15, 22, tzinfo=ZoneInfo("Asia/Seoul"))
 CONTRACT = Contract(opaque("C000:1111:2222"), "1111", "2222", "Synthetic contract")
@@ -35,6 +36,7 @@ class FakePortal:
     query_fail_after_write = False
     end = "20260918"
     expire_form_once = False
+    target = "35"
 
     def __init__(self):
         self.requests = []
@@ -94,7 +96,7 @@ class FakePortal:
             "cano": "2222",
             "sernr": "9001",
             "addr": "",
-            "cust_readingresult": "35",
+            "cust_readingresult": self.target,
             "adatsoll1": "20260917",
             "v_ldo": "01",
             "anlage": "3001",
@@ -106,13 +108,13 @@ class FakePortal:
             "reject_after_commit",
             "chunked",
         }:
-            self.accepted = "35"
+            self.accepted = self.target
         elif self.mode == "lower":
-            self.accepted = "34"
+            self.accepted = str(int(self.target) - 1)
         elif self.mode == "higher":
-            self.accepted = "36"
+            self.accepted = str(int(self.target) + 1)
         elif self.mode == "reported_unconfirmed":
-            self.reported = "35"
+            self.reported = self.target
         if self.mode.startswith("drop_"):
             request.transport.abort()
             return web.Response()
@@ -132,6 +134,16 @@ class FakePortal:
             return web.Response(text="{incomplete")
         if self.mode == "unknown_ack":
             return web.json_response({"result": "UNKNOWN", "message": "PRIVATE SERVER CONTENT"})
+        if self.mode == "optimistic_ack":
+            return web.json_response({})
+        if self.mode == "optimistic_empty_signals":
+            return web.json_response({"result": " ", "error": None, "errorCode": "", "errCd": 0})
+        if self.mode == "error_signal":
+            return web.json_response({"error": "PRIVATE SERVER CONTENT"})
+        if self.mode == "alternate_failure_signal":
+            return web.json_response({"success": False})
+        if self.mode == "alternate_provider_rejection":
+            return web.json_response({"responseCode": "FAIL", "inputYn": "N"})
         if self.mode == "oversize":
             return web.Response(body=b"x" * (submission_transport.MAX_RESPONSE_BYTES + 1))
         if self.mode == "chunked":
@@ -201,6 +213,47 @@ async def test_real_http_login_form_write_and_exact_readback(fake_portal):
     assert "test-password" not in json.dumps(saved)
 
 
+async def test_real_http_busan_revision_posts_once_and_reads_back_new_value(fake_portal):
+    fake, client = fake_portal
+    fake.accepted = "42"
+    fake.target = "44"
+    state, saved = {}, []
+
+    async def persist():
+        saved.append(copy.deepcopy(state))
+
+    async def query():
+        return await client.meter(CONTRACT)
+
+    async def write(window, value, *, revision, revision_from):
+        return await client.submit(
+            CONTRACT,
+            window,
+            value,
+            now=NOW,
+            revision=revision,
+            revision_from=revision_from,
+        )
+
+    initial = await query()
+    state[initial.cycle] = {
+        "status": "confirmed",
+        "accepted": "42",
+        "proposed": 42,
+        "confirmation_source": "readback",
+    }
+    manager = SubmissionManager(state, persist, query, write, enabled=True, supports_revision=True)
+    fake.checkpoint = lambda: saved[-1][initial.cycle]
+    proposal = manager.proposal("44", "manual", NOW, initial, revision=True, revision_from="42")
+
+    result = await manager.submit(proposal["id"], NOW, lambda *_: None)
+
+    assert result["status"] == "confirmed"
+    assert result["accepted"] == "44"
+    assert len(fake.payloads) == 1
+    assert fake.payloads[0]["cust_readingresult"] == "44"
+
+
 async def test_expired_form_session_reauthenticates_before_one_submission(fake_portal):
     fake, client = fake_portal
     manager, proposal, window, saved = await manager_for(fake, client)
@@ -230,8 +283,8 @@ async def test_lost_acknowledgement_is_reconciled_without_reposting(fake_portal,
     fake.mode = mode
     original = submission_transport.send_once
 
-    async def fast_timeout(session, base, payload):
-        return await original(session, base, payload, timeout=0.03)
+    async def fast_timeout(session, base, payload, **kwargs):
+        return await original(session, base, payload, timeout=0.03, **kwargs)
 
     monkeypatch.setattr(submission_transport, "send_once", fast_timeout)
     manager, proposal, _, _ = await manager_for(fake, client)
@@ -248,6 +301,9 @@ async def test_lost_acknowledgement_is_reconciled_without_reposting(fake_portal,
         "html",
         "malformed",
         "unknown_ack",
+        "error_signal",
+        "alternate_failure_signal",
+        "alternate_provider_rejection",
         "oversize",
     ],
 )
@@ -291,6 +347,23 @@ async def test_explicit_Y_completes_even_when_readback_is_empty_or_fails(
         again = restored.proposal("35", "sensor", NOW, window)
         assert (await restored.submit(again["id"], NOW, lambda *_: None))["status"] == "confirmed"
         assert len(fake.payloads) == 1
+
+
+@pytest.mark.parametrize("mode", ["optimistic_ack", "optimistic_empty_signals"])
+async def test_busan_error_free_valid_200_is_optimistically_confirmed(fake_portal, mode):
+    fake, client = fake_portal
+    fake.mode = mode
+    manager, proposal, window, _ = await manager_for(fake, client)
+
+    result = await manager.submit(proposal["id"], NOW, lambda *_: None)
+
+    assert result["status"] == "confirmed"
+    assert result["accepted"] == "35"
+    assert result["confirmation_source"] == "provider_response"
+    assert result["acknowledgement_matcher"] == "busan_http_200_optimistic"
+    assert result["receipt_in_latest_read"] is False
+    assert manager.state[window.cycle]["status"] == "confirmed"
+    assert len(fake.payloads) == 1
 
 
 async def test_explicit_rejection_is_explained_and_daily_repeat_blocked(fake_portal):
@@ -373,6 +446,68 @@ async def test_transport_requires_integer_value(fake_portal, value):
     with pytest.raises(GasError, match="invalid_submission_value"):
         build_payload(CONTRACT, window, value, FORM, NOW)
     assert not fake.requests
+
+
+def test_revision_transport_requires_busan_capability_and_exact_prior_receipt():
+    window = portal.meter_from_json(
+        {
+            "list": [
+                {
+                    **FakePortal().row(),
+                    "SELF_READ_YN": "Y",
+                    "CUST_READING_RESULT": "42",
+                }
+            ]
+        }
+    )
+    payload = build_payload(
+        CONTRACT,
+        window,
+        44,
+        FORM,
+        NOW,
+        PROVIDERS["busan"],
+        revision=True,
+        revision_from="42",
+    )
+    assert payload["cust_readingresult"] == "44"
+
+    acknowledgement_only = copy.deepcopy(window)
+    acknowledgement_only.submitted = None
+    payload = build_payload(
+        CONTRACT,
+        acknowledgement_only,
+        44,
+        FORM,
+        NOW,
+        PROVIDERS["busan"],
+        revision=True,
+        revision_from="42",
+    )
+    assert payload["cust_readingresult"] == "44"
+
+    with pytest.raises(SubmissionNotSent, match="revision_state_changed"):
+        build_payload(
+            CONTRACT,
+            window,
+            44,
+            FORM,
+            NOW,
+            PROVIDERS["busan"],
+            revision=True,
+            revision_from="41",
+        )
+    with pytest.raises(SubmissionNotSent, match="revision_submission_unsupported"):
+        build_payload(
+            CONTRACT,
+            window,
+            44,
+            FORM,
+            NOW,
+            PROVIDERS["koone"],
+            revision=True,
+            revision_from="42",
+        )
 
 
 async def test_window_closed_and_stale_proposal_never_post(fake_portal):
@@ -477,5 +612,81 @@ async def test_ha_panel_handler_through_runtime_to_http(fake_portal, hass, monke
                 assert runtime.view(CONTRACT.key)["submission_blocked"]
             if mode == "notification_failure":
                 assert receipt["notification_warning"] == "notification_failed"
+    finally:
+        await runtime.shutdown()
+
+
+async def test_ha_websocket_revision_surface_seals_and_submits_prior_value(
+    fake_portal, hass, monkeypatch
+):
+    import inspect
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from custom_components.busan_city_gas import coordinator, websocket
+    from custom_components.busan_city_gas.const import DOMAIN
+    from tests import test_ha
+
+    fake, client = fake_portal
+    fake.accepted = "42"
+    fake.target = "44"
+    monkeypatch.setattr(test_ha, "CONTRACT", CONTRACT)
+    monkeypatch.setattr(coordinator.dt_util, "now", lambda: NOW)
+    runtime = await test_ha.make_runtime(hass)
+    runtime.client = client
+    hass.data[DOMAIN] = {runtime.entry.entry_id: runtime}
+    hass.auth = SimpleNamespace(
+        async_get_user=AsyncMock(return_value=SimpleNamespace(is_admin=True, is_active=True))
+    )
+    connection = SimpleNamespace(
+        user=SimpleNamespace(id="synthetic-user"), send_result=Mock(), send_error=Mock()
+    )
+    try:
+        await runtime.check_submission(CONTRACT.key)
+        await runtime.calibrate(CONTRACT.key, "44.1", physical=True)
+        view = runtime.view(CONTRACT.key)
+        assert view["supports_revision_submission"] is True
+        assert view["revision_submission_available"] is True
+        cycle = runtime.saved["contracts"][CONTRACT.key]["submissions"][
+            runtime.windows[CONTRACT.key].cycle
+        ]
+        cycle["revision_rejected_day"] = NOW.date().isoformat()
+        assert runtime.view(CONTRACT.key)["revision_submission_available"] is False
+        cycle.pop("revision_rejected_day")
+
+        await inspect.unwrap(websocket.ws_proposal)(
+            hass,
+            connection,
+            {
+                "id": 1,
+                "entry_id": runtime.entry.entry_id,
+                "key": CONTRACT.key,
+                "revision": True,
+            },
+        )
+        proposal = connection.send_result.call_args.args[1]
+        assert proposal["revision"] is True
+        assert proposal["revision_from"] == "42"
+        assert proposal["revision_from_at_kind"] == "confirmed"
+
+        fake.checkpoint = lambda: runtime.saved["contracts"][CONTRACT.key]["submissions"][
+            runtime.windows[CONTRACT.key].cycle
+        ]
+        connection.send_result.reset_mock()
+        await inspect.unwrap(websocket.ws_submit)(
+            hass,
+            connection,
+            {
+                "id": 2,
+                "entry_id": runtime.entry.entry_id,
+                "key": CONTRACT.key,
+                "proposal_id": proposal["id"],
+            },
+        )
+
+        receipt = connection.send_result.call_args.args[1]
+        assert receipt["status"] == "confirmed"
+        assert receipt["accepted"] == "44"
+        assert len(fake.payloads) == 1
     finally:
         await runtime.shutdown()

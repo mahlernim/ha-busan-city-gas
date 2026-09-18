@@ -64,12 +64,12 @@ SK E&S 외 새 공급사 연결은 **실험적 지원**이며 실제 사용자 �
 ## 평소에는 이렇게 사용하세요
 
 1. **요금 확인:** 사이드바의 똑똑 자가검침 AI 화면에서 고지금액과 예상액을 봅니다. 별도 대시보드 편집은 필요 없습니다.
-2. **검침 보정:** 실제 계량기 숫자와 같으면 `맞음`, 조금 다르면 `+0.1 / −0.1`, 차이가 크면 숫자를 입력하고 **보정만 적용**을 누릅니다. 보정은 선택한 도시가스 공급사에 제출하는 동작이 아닙니다.
-3. **자가검침 제출:** 접수 기간에 **제출값 확인**을 누르고 계약과 정수값을 확인한 뒤 승인합니다. 예를 들어 128.6 m³라면 128 m³를 보냅니다. **보정하고 제출**도 보정 후 별도 확인을 거칩니다.
+2. **검침 보정:** 실제 계량기 숫자와 같으면 `맞음`, 조금 다르면 `+0.1 / −0.1`, 차이가 크면 숫자를 입력하고 **보정하기**를 누릅니다. 보정은 선택한 도시가스 공급사에 제출하는 동작이 아닙니다.
+3. **자가검침 제출:** 접수 기간에 **현재 값 제출**을 누르고 계약과 정수값을 확인한 뒤 승인합니다. 예를 들어 128.6 m³라면 128 m³를 보냅니다. 부산도시가스는 접수 기간 중 값이 달라지면 기존 접수 시각·값과 새 값을 보고 **수정 제출**할 수 있습니다.
 
 주간 보정 알림을 켜면 기본 토요일 오전 10시에 안내하며 시간은 변경할 수 있습니다. 제출 알림을 켜면 접수 기간에 제출 여부를 묻습니다. **마감일 자동 제출은 별도 옵션이며 기본 꺼짐**입니다. 켜면 설정 시각에 접수 여부를 확인한 뒤 전송합니다.
 
-요청 응답만으로 성공이라 표시하지 않고 접수값을 다시 확인합니다. 결과가 불명확하면 중복 전송을 막고 확인 방법을 안내합니다. 이미 접수된 값의 수정은 선택한 도시가스 공급사 홈페이지에서 확인하세요.
+공급사별로 확인된 등록 완료 응답과 접수 재조회를 구분해 보존합니다. 부산도시가스는 당월 접수 내역을 홈페이지에서 조회할 수 없으므로, 오류 없는 정상 제출 응답을 공급사 응답 기준 완료로 표시합니다. 응답이 끊겼거나 결과가 불명확하면 완료로 간주하지 않고 중복 전송을 막습니다. 수정 제출은 현재 부산도시가스에만 제공합니다.
 
 ## 설치하기
 
@@ -119,6 +119,6 @@ Select your contract, optionally connect a raw cumulative gas sensor in m³, and
 
 ### Submission and updates
 
-Manual submission requires confirmation. Automatic submission is opt-in and starts disabled. EnergyTalk exposes current permission rather than a future deadline, so it has no built-in last-day submission schedule. Acknowledgements are checked against the supplier's recorded reading, and uncertain outcomes are not automatically retried.
+Calibration and supplier submission are separate actions, and every manual submission requires confirmation. During an open Busan City Gas window, a confirmed reading can be revised after a second confirmation that shows the previous and replacement integer values; automatic submission never performs revisions. Busan does not expose the current month's receipt through the website, so an error-free provider response is retained as provider-response completion. Lost or ambiguous outcomes are never automatically retried. Automatic submission is opt-in and starts disabled. EnergyTalk exposes current permission rather than a future deadline, so it has no built-in last-day submission schedule.
 
 Install future updates through HACS and restart Home Assistant. Existing entries do not need to be deleted or recreated. The domain remains `busan_city_gas`. Estimates are informational, and the integration does not make payments or control gas valves. For support, open an issue with the supplier, failing step, and redacted error message. See the [installation guide](docs/installation.md), [supplier details](docs/providers.md), and [privacy information](docs/privacy.md).

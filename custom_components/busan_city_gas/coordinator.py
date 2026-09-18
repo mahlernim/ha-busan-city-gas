@@ -121,7 +121,16 @@ class AccountCoordinator(DataUpdateCoordinator):
                 self.sync_model(k)
                 return window
 
-            async def write(window, value, c=contract):
+            async def write(window, value, *, revision=False, revision_from=None, c=contract):
+                if revision:
+                    return await self.client.submit(
+                        c,
+                        window,
+                        value,
+                        now=dt_util.now(),
+                        revision=True,
+                        revision_from=revision_from,
+                    )
                 return await self.client.submit(c, window, value, now=dt_util.now())
 
             self.submissions[key] = SubmissionManager(
@@ -130,6 +139,7 @@ class AccountCoordinator(DataUpdateCoordinator):
                 query,
                 write,
                 enabled=SUBMISSION_ENABLED and self.provider.supports_submission,
+                supports_revision=self.provider.supports_revision_submission,
             )
             if source:
                 self.observe(key)
@@ -385,6 +395,39 @@ class AccountCoordinator(DataUpdateCoordinator):
         )
         estimate = self.estimates[key]
         cycle = item.get("submissions", {}).get(window.cycle, {}) if window else {}
+        revision_value_differs = False
+        revision_source_current = False
+        if values.get("reading") is not None and cycle.get("accepted") is not None:
+            try:
+                revision_value_differs = int(decimal(values["reading"])) != int(
+                    decimal(cycle["accepted"])
+                )
+                revision_source_current = bool(
+                    window
+                    and (
+                        (
+                            window.submitted is not None
+                            and decimal(window.submitted) == decimal(cycle["accepted"])
+                        )
+                        or (
+                            window.submitted is None
+                            and cycle.get("confirmation_source") == "provider_response"
+                        )
+                    )
+                )
+            except GasError:
+                pass
+        revision_submission_available = bool(
+            SUBMISSION_ENABLED
+            and self.provider.supports_revision_submission
+            and window_status == "open"
+            and cycle.get("status") == "confirmed"
+            and revision_value_differs
+            and revision_source_current
+            and cycle.get("revision_rejected_day") != today
+            and key not in self.startup_deadlines
+            and not (window and window.private.get("submission_blocked"))
+        )
         prior_year = next(
             (
                 b
@@ -397,6 +440,7 @@ class AccountCoordinator(DataUpdateCoordinator):
             "provider_id": self.provider.id,
             "provider_family": self.provider.family,
             "supports_submission": self.provider.supports_submission,
+            "supports_revision_submission": self.provider.supports_revision_submission,
             "service_registration_required": bool(
                 window and window.private.get("registered") is False
             ),
@@ -461,6 +505,11 @@ class AccountCoordinator(DataUpdateCoordinator):
             or cycle.get("last_attempt_day") == today,
             "accepted": cycle.get("accepted"),
             "accepted_checked_at": cycle.get("checked_at"),
+            "revision_submission_available": revision_submission_available,
+            "revision_readback_pending": bool(cycle.get("revision_readback_pending")),
+            "last_revision": cycle.get("last_revision"),
+            "revision_history": list(reversed(cycle.get("revisions", []))),
+            "last_revision_error": cycle.get("last_revision_error"),
             "notification": {
                 k: v for k, v in item.get("notification", {}).items() if k != "received_by"
             }
@@ -536,9 +585,11 @@ class AccountCoordinator(DataUpdateCoordinator):
             self.submissions[key].proposals.clear()
             self.changed()
 
-    def propose(self, key):
+    def propose(self, key, *, revision=False):
         if not self.provider.supports_submission:
             raise GasError("submission_disabled")
+        if revision and not self.provider.supports_revision_submission:
+            raise GasError("revision_submission_unsupported")
         view, window = self.view(key), self.windows.get(key)
         estimate = self.estimates[key]
         if not self.options(key)["source_entity"] and self.current_physical(key):
@@ -546,8 +597,41 @@ class AccountCoordinator(DataUpdateCoordinator):
                 view["reading"], view["origin"] = estimate.actual, "manual"
         if window is None or view["reading"] is None:
             raise GasError("insufficient_data")
+        revision_from = None
+        revision_from_at = None
+        revision_from_at_kind = None
+        if revision:
+            cycle = self.saved["contracts"][key].get("submissions", {}).get(window.cycle, {})
+            revision_from = cycle.get("accepted")
+            if cycle.get("status") != "confirmed" or revision_from is None:
+                raise GasError("revision_submission_unavailable")
+            if window.submitted is not None and decimal(window.submitted) != decimal(revision_from):
+                raise GasError("revision_submission_unavailable")
+            if window.submitted is None and cycle.get("confirmation_source") != "provider_response":
+                raise GasError("revision_submission_unavailable")
+            if not window.is_open(dt_util.now().date()):
+                raise GasError("window_closed")
+            if int(decimal(view["reading"])) == int(decimal(revision_from)):
+                raise GasError("submission_value_unchanged")
+            if cycle.get("revision_rejected_day") == dt_util.now().date().isoformat():
+                raise GasError("submission_attempted_today")
+            if cycle.get("confirmation_source") == "provider_response" and cycle.get(
+                "attempted_at"
+            ):
+                revision_from_at = cycle["attempted_at"]
+                revision_from_at_kind = "submitted"
+            else:
+                revision_from_at = cycle.get("checked_at")
+                revision_from_at_kind = "confirmed" if revision_from_at else None
         return self.submissions[key].proposal(
-            view["reading"], view["origin"], dt_util.now(), window
+            view["reading"],
+            view["origin"],
+            dt_util.now(),
+            window,
+            revision=revision,
+            revision_from=revision_from,
+            revision_from_at=revision_from_at,
+            revision_from_at_kind=revision_from_at_kind,
         )
 
     def current_physical(self, key):

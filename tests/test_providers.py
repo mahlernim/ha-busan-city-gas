@@ -43,6 +43,12 @@ def test_provider_registry_and_busan_identity_are_stable():
         if provider.family == "skens"
     }
     assert len(keys) == 8
+    assert PROVIDERS["busan"].supports_revision_submission
+    assert all(
+        not provider.supports_revision_submission
+        for key, provider in PROVIDERS.items()
+        if key != "busan"
+    )
 
 
 @pytest.mark.parametrize("provider_id,code", EXPECTED.items())
@@ -177,7 +183,7 @@ async def test_submission_uses_selected_provider_without_retry(provider_id, monk
     )
     client.read.assert_awaited_once_with(f"/{provider.path}/read/selfRead.do")
     if provider_id == "busan":
-        assert sent.await_args.kwargs == {}
+        assert sent.await_args.kwargs == {"optimistic_busan": True}
     else:
         assert sent.await_args.kwargs == {
             "form_path": f"/{provider.path}/read/selfRead.do",

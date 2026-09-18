@@ -41,7 +41,7 @@ calibrate:
         boolean:
 prepare_submission:
   name: 제출값 확인 요청 생성
-  description: 표시할 정수 검침값과 만료되는 요청 ID를 반환합니다. 제출하지 않습니다.
+  description: 표시할 정수 검침값과 만료되는 요청 ID를 반환합니다. 제출하지 않습니다. 수정 제출은 지원되는 공급사의 기존 접수값을 제안에 봉인합니다.
   fields:
     entry_id:
       required: true
@@ -51,6 +51,11 @@ prepare_submission:
       required: true
       selector:
         text:
+    revision:
+      required: false
+      default: false
+      selector:
+        boolean:
 check_submission:
   name: 접수 상태만 확인
   description: 검침값을 제출하지 않고 접수 내역만 재조회합니다. 고지서는 다시 내려받지 않습니다. 확인되지 않은 요청은 재전송하지 않습니다.

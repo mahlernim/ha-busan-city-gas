@@ -1,8 +1,10 @@
 """Observed submission wire contracts and provider acknowledgement matchers.
 
 No payload, member name or address is persisted or included in exceptions.
-Only provider-scoped business acknowledgements count as registration; transport
-success alone does not. A later matching readback remains stronger evidence.
+Only provider-scoped business acknowledgements count as registration. Busan is
+the narrow exception: its current-month receipt cannot be queried, so a valid
+HTTP 200 JSON object with no non-empty outcome/error is an optimistic acknowledgement.
+A later matching readback remains stronger evidence where one is available.
 """
 
 from __future__ import annotations
@@ -81,8 +83,50 @@ def match_submission_acknowledgement(
     return SubmissionAcknowledgement(matcher.name)
 
 
+def _busan_response_has_ambiguous_signal(payload: dict) -> bool:
+    """Reject an unknown outcome or a populated error signal from optimistic success."""
+    for field in (
+        "result",
+        "success",
+        "ok",
+        "status",
+        "code",
+        "inputYn",
+        "responseCode",
+        "E_RETCD",
+    ):
+        outcome = payload.get(field)
+        if outcome is None:
+            continue
+        if isinstance(outcome, str) and not outcome.strip():
+            continue
+        if isinstance(outcome, (list, dict, tuple)) and not outcome:
+            continue
+        # Known result=Y/N was handled by match_submission_acknowledgement().
+        # Any other populated outcome, including False or 0, is not evidence.
+        return True
+    for field in ("error", "errorCode", "errCd"):
+        value = payload.get(field)
+        if value is None or value is False or value == 0:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        if isinstance(value, (list, dict, tuple)) and not value:
+            continue
+        return True
+    return False
+
+
 def build_payload(
-    contract, window: MeterWindow, value: int, html: str, now: datetime, provider=None
+    contract,
+    window: MeterWindow,
+    value: int,
+    html: str,
+    now: datetime,
+    provider=None,
+    *,
+    revision: bool = False,
+    revision_from: str | None = None,
 ) -> dict:
     # Local import avoids coupling read-only parsing to the transport at startup.
     from .portal import contracts_from_html, document, opaque, portal_date
@@ -93,7 +137,16 @@ def build_payload(
         raise SubmissionNotSent("invalid_submission_value")
     if not window.is_open(now.date()):
         raise SubmissionNotSent("window_closed")
-    if window.submitted is not None or window.private.get("submission_blocked"):
+    if revision:
+        if provider is None or not provider.supports_revision_submission:
+            raise SubmissionNotSent("revision_submission_unsupported")
+        if revision_from is None:
+            raise SubmissionNotSent("revision_submission_unavailable")
+        if window.submitted is not None and decimal(window.submitted) != decimal(revision_from):
+            raise SubmissionNotSent("revision_state_changed")
+        if int(decimal(revision_from)) == value:
+            raise SubmissionNotSent("submission_value_unchanged")
+    if (window.submitted is not None and not revision) or window.private.get("submission_blocked"):
         raise SubmissionNotSent("portal_reading_present")
     if value < decimal(window.previous):
         raise SubmissionNotSent("below_official_reading")
@@ -148,6 +201,7 @@ async def send_once(
     timeout: float = 25,
     form_path: str = FORM_PATH,
     submit_path: str = SUBMIT_PATH,
+    optimistic_busan: bool = False,
 ) -> SubmissionAcknowledgement | None:
     """One form POST, no redirects, login replay or retry of any kind."""
     try:
@@ -175,6 +229,11 @@ async def send_once(
                 raise SubmissionUncertain("submission_uncertain") from None
             if not isinstance(result, dict):
                 raise SubmissionUncertain("submission_uncertain")
-            return match_submission_acknowledgement(result, (RESULT_Y_N,))
+            acknowledgement = match_submission_acknowledgement(result, (RESULT_Y_N,))
+            if acknowledgement is not None:
+                return acknowledgement
+            if optimistic_busan and not _busan_response_has_ambiguous_signal(result):
+                return SubmissionAcknowledgement("busan_http_200_optimistic")
+            return None
     except (aiohttp.ClientError, TimeoutError):
         raise SubmissionUncertain("submission_uncertain") from None

@@ -17,6 +17,7 @@ class Provider:
     family: str = "skens"
     company_codes: tuple[str, ...] = ()
     homepage: str = ""
+    supports_revision_submission: bool = False
 
     @property
     def supports_submission(self) -> bool:
@@ -57,6 +58,7 @@ PROVIDERS = {
                 ("central", "중앙난방", "중앙난방"),
             ),
             threshold_mj="516",
+            supports_revision_submission=True,
         ),
         Provider(
             "koone",

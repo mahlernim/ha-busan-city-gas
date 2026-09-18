@@ -146,3 +146,255 @@ async def test_validation_failure_before_write():
     with pytest.raises(GasError, match="physical_calibration_required"):
         await manager.submit(p["id"], NOW, validate)
     assert not calls
+
+
+async def test_explicit_revision_can_replace_confirmed_value_on_same_day():
+    state, calls = {}, []
+    window = MeterWindow("2026-09-13", "2026-09-18", "27", "meter", eligible=True, submitted="42")
+    state[window.cycle] = {
+        "status": "confirmed",
+        "accepted": "42",
+        "proposed": 42,
+        "last_attempt_day": NOW.date().isoformat(),
+    }
+
+    async def write(_window, value, *, revision, revision_from):
+        calls.append((value, revision, revision_from))
+        window.submitted = str(value)
+        return SubmissionAcknowledgement("result_y_n")
+
+    manager = SubmissionManager(
+        state,
+        AsyncMock(),
+        AsyncMock(return_value=window),
+        write,
+        supports_revision=True,
+    )
+    proposal = manager.proposal("44.9", "manual", NOW, window, revision=True, revision_from="42")
+    result = await manager.submit(proposal["id"], NOW, lambda *_: None)
+
+    assert calls == [(44, True, "42")]
+    assert result["status"] == "confirmed"
+    assert result["accepted"] == "44"
+    assert result["last_revision"]["from"] == "42"
+    assert result["last_revision"]["to"] == "44"
+
+
+async def test_revision_proposal_is_bound_to_confirmed_value():
+    state, calls = {}, []
+    window = MeterWindow("2026-09-13", "2026-09-18", "27", "meter", eligible=True, submitted="42")
+    state[window.cycle] = {"status": "confirmed", "accepted": "42", "proposed": 42}
+
+    async def write(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    manager = SubmissionManager(
+        state,
+        AsyncMock(),
+        AsyncMock(return_value=window),
+        write,
+        supports_revision=True,
+    )
+    proposal = manager.proposal("44", "manual", NOW, window, revision=True, revision_from="42")
+    window.submitted = "43"
+
+    with pytest.raises(GasError, match="revision_state_changed"):
+        await manager.submit(proposal["id"], NOW, lambda *_: None)
+
+    assert not calls
+    assert state[window.cycle]["status"] == "confirmed"
+    assert state[window.cycle]["accepted"] == "43"
+
+
+async def test_revision_target_already_confirmed_is_idempotent_without_write():
+    state = {}
+    window = MeterWindow("2026-09-13", "2026-09-18", "27", "meter", eligible=True, submitted="42")
+    state[window.cycle] = {"status": "confirmed", "accepted": "42", "proposed": 42}
+    write = AsyncMock()
+    manager = SubmissionManager(
+        state,
+        AsyncMock(),
+        AsyncMock(return_value=window),
+        write,
+        supports_revision=True,
+    )
+    proposal = manager.proposal("44", "manual", NOW, window, revision=True, revision_from="42")
+    window.submitted = "44"
+
+    result = await manager.submit(proposal["id"], NOW, lambda *_: None)
+
+    assert result["accepted"] == "44"
+    assert result["revision_idempotent"] is True
+    write.assert_not_awaited()
+
+
+def test_revision_requires_advertised_capability_and_sealed_prior_value():
+    manager, window, _, _ = setup()
+    with pytest.raises(GasError, match="revision_submission_unsupported"):
+        manager.proposal("44", "manual", NOW, window, revision=True, revision_from="42")
+
+    manager.supports_revision = True
+    with pytest.raises(GasError, match="revision_submission_unavailable"):
+        manager.proposal("44", "manual", NOW, window, revision=True)
+
+
+async def test_provider_acknowledged_value_can_be_revised_without_readback_receipt():
+    state = {}
+    window = MeterWindow("2026-09-13", "2026-09-18", "27", "meter", eligible=True)
+    state[window.cycle] = {
+        "status": "confirmed",
+        "accepted": "42",
+        "proposed": 42,
+        "confirmation_source": "provider_response",
+    }
+    write = AsyncMock(return_value=SubmissionAcknowledgement("result_y_n"))
+    manager = SubmissionManager(
+        state,
+        AsyncMock(),
+        AsyncMock(return_value=window),
+        write,
+        supports_revision=True,
+    )
+    proposal = manager.proposal("44", "manual", NOW, window, revision=True, revision_from="42")
+
+    result = await manager.submit(proposal["id"], NOW, lambda *_: None)
+
+    assert result["status"] == "confirmed"
+    assert result["accepted"] == "44"
+    assert result["revision_readback_pending"] is True
+    write.assert_awaited_once_with(window, 44, revision=True, revision_from="42")
+
+
+async def test_revision_provider_ack_survives_stale_old_readback():
+    state = {}
+    window = MeterWindow("2026-09-13", "2026-09-18", "27", "meter", eligible=True, submitted="42")
+    state[window.cycle] = {"status": "confirmed", "accepted": "42", "proposed": 42}
+    write = AsyncMock(return_value=SubmissionAcknowledgement("result_y_n"))
+    manager = SubmissionManager(
+        state,
+        AsyncMock(),
+        AsyncMock(return_value=window),
+        write,
+        supports_revision=True,
+    )
+    proposal = manager.proposal("44", "manual", NOW, window, revision=True, revision_from="42")
+
+    result = await manager.submit(proposal["id"], NOW, lambda *_: None)
+
+    assert result["status"] == "confirmed"
+    assert result["accepted"] == "44"
+    assert result["observed_reading"] == "42"
+    assert result["revision_readback_pending"] is True
+    assert write.await_count == 1
+
+
+@pytest.mark.parametrize("status", ["pending", "uncertain"])
+async def test_revision_never_writes_while_prior_result_is_ambiguous(status):
+    state = {}
+    window = MeterWindow("2026-09-13", "2026-09-18", "27", "meter", eligible=True, submitted="42")
+    state[window.cycle] = {
+        "status": status,
+        "accepted": "42",
+        "proposed": 44,
+        "error": "submission_uncertain",
+    }
+    write = AsyncMock()
+    manager = SubmissionManager(
+        state,
+        AsyncMock(),
+        AsyncMock(return_value=window),
+        write,
+        supports_revision=True,
+    )
+    proposal = manager.proposal("45", "manual", NOW, window, revision=True, revision_from="42")
+
+    with pytest.raises(GasError, match="submission_(uncertain|value_mismatch)"):
+        await manager.submit(proposal["id"], NOW, lambda *_: None)
+    write.assert_not_awaited()
+
+
+async def test_ambiguous_revision_is_not_retried_after_restart():
+    state = {}
+    window = MeterWindow("2026-09-13", "2026-09-18", "27", "meter", eligible=True, submitted="42")
+    state[window.cycle] = {"status": "confirmed", "accepted": "42", "proposed": 42}
+    write = AsyncMock(side_effect=TimeoutError())
+    query = AsyncMock(return_value=window)
+    manager = SubmissionManager(state, AsyncMock(), query, write, supports_revision=True)
+    proposal = manager.proposal("44", "manual", NOW, window, revision=True, revision_from="42")
+    with pytest.raises(GasError):
+        await manager.submit(proposal["id"], NOW, lambda *_: None)
+
+    restored = SubmissionManager(state, AsyncMock(), query, write, supports_revision=True)
+    retry = restored.proposal("44", "manual", NOW, window, revision=True, revision_from="42")
+    with pytest.raises(GasError):
+        await restored.submit(retry["id"], NOW, lambda *_: None)
+    assert write.await_count == 1
+
+
+async def test_negative_response_with_changed_readback_confirms_without_retry():
+    state = {}
+    window = MeterWindow("2026-09-13", "2026-09-18", "27", "meter", eligible=True, submitted="42")
+    state[window.cycle] = {"status": "confirmed", "accepted": "42", "proposed": 42}
+
+    async def write(_window, value, **_kwargs):
+        window.submitted = str(value)
+        raise SubmissionRejected("submission_rejected")
+
+    manager = SubmissionManager(
+        state,
+        AsyncMock(),
+        AsyncMock(return_value=window),
+        write,
+        supports_revision=True,
+    )
+    proposal = manager.proposal("44", "manual", NOW, window, revision=True, revision_from="42")
+
+    result = await manager.submit(proposal["id"], NOW, lambda *_: None)
+
+    assert result["status"] == "confirmed"
+    assert result["accepted"] == "44"
+
+
+async def test_rejected_revision_keeps_prior_receipt_and_blocks_same_day_retry():
+    state = {}
+    window = MeterWindow("2026-09-13", "2026-09-18", "27", "meter", eligible=True, submitted="42")
+    state[window.cycle] = {"status": "confirmed", "accepted": "42", "proposed": 42}
+    write = AsyncMock(side_effect=SubmissionRejected("submission_rejected"))
+    manager = SubmissionManager(
+        state,
+        AsyncMock(),
+        AsyncMock(return_value=window),
+        write,
+        supports_revision=True,
+    )
+    proposal = manager.proposal("44", "manual", NOW, window, revision=True, revision_from="42")
+    with pytest.raises(GasError, match="submission_rejected"):
+        await manager.submit(proposal["id"], NOW, lambda *_: None)
+
+    assert state[window.cycle]["status"] == "confirmed"
+    assert state[window.cycle]["accepted"] == "42"
+    assert state[window.cycle]["revision_rejected_day"] == NOW.date().isoformat()
+
+    retry = manager.proposal("44", "manual", NOW, window, revision=True, revision_from="42")
+    with pytest.raises(GasError, match="submission_attempted_today"):
+        await manager.submit(retry["id"], NOW, lambda *_: None)
+    assert write.await_count == 1
+
+
+async def test_revision_is_blocked_after_window_closes():
+    state = {}
+    window = MeterWindow("2026-09-13", "2026-09-17", "27", "meter", eligible=True, submitted="42")
+    state[window.cycle] = {"status": "confirmed", "accepted": "42", "proposed": 42}
+    write = AsyncMock()
+    manager = SubmissionManager(
+        state,
+        AsyncMock(),
+        AsyncMock(return_value=window),
+        write,
+        supports_revision=True,
+    )
+    proposal = manager.proposal("44", "manual", NOW, window, revision=True, revision_from="42")
+
+    with pytest.raises(GasError, match="window_closed"):
+        await manager.submit(proposal["id"], NOW, lambda *_: None)
+    write.assert_not_awaited()
