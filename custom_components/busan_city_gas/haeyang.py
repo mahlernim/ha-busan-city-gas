@@ -19,10 +19,11 @@ from .submission_transport import SubmissionNotSent, SubmissionRejected, Submiss
 
 BASE = "https://m.hyenergy.co.kr/bizmob/"
 TR_CODES = frozenset({"LOGIN", "MYPAGE3", "BILL001", "BILL002", "SELF100", "SELF101"})
+KOREA = ZoneInfo("Asia/Seoul")
 
 
 def today():
-    return datetime.now(ZoneInfo("Asia/Seoul")).date()
+    return datetime.now(KOREA).date()
 
 
 def envelope(trcode, body):

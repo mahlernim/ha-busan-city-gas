@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://github.com/mahlernim/ha-busan-city-gas/releases/latest"><img src="https://img.shields.io/github/v/release/mahlernim/ha-busan-city-gas?style=flat-square&amp;label=version" alt="최신 버전"></a>
   <a href="docs/installation.md"><img src="https://img.shields.io/badge/Home%20Assistant-2026.7.4%2B-18BCF2?style=flat-square&amp;logo=homeassistant&amp;logoColor=white" alt="Home Assistant 2026.7.4 이상"></a>
-  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=mahlernim&amp;repository=ha-busan-city-gas&amp;category=integration"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5?style=flat-square" alt="HACS 사용자 지정 저장소"></a>
+  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=mahlernim&amp;repository=ha-busan-city-gas&amp;category=integration"><img src="https://img.shields.io/badge/HACS-Integration-41BDF5?style=flat-square" alt="HACS에서 열기"></a>
   <a href="https://github.com/mahlernim/ha-busan-city-gas/actions/workflows/validate.yml"><img src="https://img.shields.io/github/actions/workflow/status/mahlernim/ha-busan-city-gas/validate.yml?branch=main&amp;style=flat-square&amp;label=checks" alt="자동 검증 상태"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/mahlernim/ha-busan-city-gas?style=flat-square" alt="MIT 라이선스"></a>
 </p>
@@ -77,9 +77,9 @@ SK E&S 외 새 공급사 연결은 **실험적 지원**이며 실제 사용자 �
 
 [![HACS에서 열기](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=mahlernim&repository=ha-busan-city-gas&category=integration)
 
-HACS가 설정되어 있다면 위 버튼을 누르세요. 처음에는 사용자 지정 저장소로 추가해야 할 수 있습니다. HACS 기본 목록에 등록된 통합은 아닙니다.
+HACS가 설정되어 있다면 위 버튼을 누르거나 HACS에서 **똑똑 자가검침 AI**를 검색하세요. 검색 결과에 보이지 않으면 [사용자 지정 저장소로 추가](docs/installation.md#사용자-지정-저장소로-추가하기)할 수 있습니다.
 
-1. HACS에 이 저장소를 추가하고 **똑똑 자가검침 AI**를 다운로드합니다.
+1. HACS에서 **똑똑 자가검침 AI**를 찾아 다운로드합니다.
 2. Home Assistant를 재시작합니다.
 3. **설정 → 기기 및 서비스 → 통합 추가 → 똑똑 자가검침 AI**에서 로그인합니다.
 
@@ -111,7 +111,7 @@ There are 37 supplier and connection-channel choices. Kiturami, Mirae N Seohae, 
 
 ### Installation and first use
 
-Home Assistant 2026.7.4 or later and HACS are required for HACS installation. Add this repository as a custom integration repository, download the integration, and restart Home Assistant. Then open **Settings → Devices & services → Add integration → 똑똑 자가검침 AI**. This repository is not in the default HACS catalog.
+Home Assistant 2026.7.4 or later and HACS are required for HACS installation. Search for **똑똑 자가검침 AI** in HACS, download it, and restart Home Assistant. If it does not appear in the search results, add `https://github.com/mahlernim/ha-busan-city-gas` as a custom repository with the **Integration** type first. Then open **Settings → Devices & services → Add integration → 똑똑 자가검침 AI**.
 
 Choose the supplier shown on your bill. Depending on the supplier, connect with website credentials, Gasapp SMS verification, or an existing EnergyTalk session token. EnergyTalk users sign in on the official site, select their address, and copy only the bearer token from an `/api/fetch` request into the masked token field. Renew the connection through HA reauthentication when it expires. Do not share the token in issues or screenshots.
 

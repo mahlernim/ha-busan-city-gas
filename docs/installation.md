@@ -17,12 +17,18 @@
 HACS가 아직 없다면 [HACS 공식 설치 안내](https://www.hacs.xyz/docs/use/)를 먼저 확인해 주세요.
 
 1. Home Assistant에서 **HACS**를 엽니다.
-2. 오른쪽 위 메뉴에서 **사용자 지정 저장소(Custom repositories)**를 선택합니다.
-3. 저장소 주소에 `https://github.com/mahlernim/ha-busan-city-gas`를 입력하고 종류는 **통합(Integration)**을 선택합니다.
-4. **똑똑 자가검침 AI**를 찾아 다운로드합니다.
-5. Home Assistant를 재시작합니다.
+2. **똑똑 자가검침 AI**를 검색해 다운로드합니다.
+3. Home Assistant를 재시작합니다.
 
 메뉴 이름은 HACS 버전에 따라 조금 다를 수 있습니다. 다운로드만 하면 설정이 끝나는 것은 아닙니다. 이어서 통합을 추가해 주세요.
+
+### 사용자 지정 저장소로 추가하기
+
+검색 결과에 보이지 않으면 저장소를 직접 추가하세요.
+
+1. HACS 오른쪽 위 메뉴에서 **사용자 지정 저장소(Custom repositories)**를 선택합니다.
+2. 저장소 주소에 `https://github.com/mahlernim/ha-busan-city-gas`를 입력하고 종류는 **통합(Integration)**을 선택합니다.
+3. **똑똑 자가검침 AI**를 찾아 다운로드하고 Home Assistant를 재시작합니다.
 
 ## 똑똑 자가검침 AI 계정 연결하기
 
